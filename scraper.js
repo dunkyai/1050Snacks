@@ -126,11 +126,30 @@ async function scrapeStore(page, storeLinks, store, query) {
 
         const cardText = (card.innerText || '').trim();
 
-        // Product name is always in an <a> that links to the product detail page.
-        // This is far more reliable than scanning innerText lines for a heuristic match.
-        const productLink = Array.from(card.querySelectorAll('a[href*="/products/"]'))
-          .find(a => a.textContent.trim().length > 5);
-        const name = productLink?.textContent.trim() || null;
+        // Product name: prefer an <a> that links into the store (not nav/search/storefront),
+        // has real text, and doesn't look like a button ("Add", "View all", etc.)
+        const productLink = Array.from(card.querySelectorAll('a[href]')).find(a => {
+          const href = a.href || '';
+          const text = a.textContent.trim();
+          return href.includes('/store/') &&
+            !/(storefront|search_v3|aisle|category|department|see_all)/i.test(href) &&
+            text.length > 10 &&
+            !/^(Add|View|See|Shop|More)/i.test(text);
+        });
+
+        let name = productLink?.textContent.trim() || null;
+
+        // Fallback: first innerText line that looks like a product name
+        if (!name) {
+          const lines = cardText.split('\n').map(l => l.trim()).filter(Boolean);
+          name = lines.find(l =>
+            l.length > 15 &&
+            !/^\$/.test(l) &&
+            !/^[★*]/.test(l) &&
+            !/(off|stock|delivery|pickup|Current|Original|Add to|Best seller|No artificial|sponsored)/i.test(l) &&
+            /[a-zA-Z]{3}/.test(l)
+          ) || null;
+        }
 
         if (!name) continue;
         results.push({ name, price, allText: cardText.slice(0, 250) });
