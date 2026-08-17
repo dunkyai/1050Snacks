@@ -64,15 +64,8 @@ jobs:
             if ! grep -q "snacks.dunky.ai" "$CADDYFILE"; then
               echo "Adding snacks.dunky.ai to Caddy..."
               sed -i '/# Dunky Mail/i # 1050 Snack Finder\nsnacks.dunky.ai {\n    tls {\n        dns cloudflare {env.CLOUDFLARE_API_TOKEN}\n    }\n    reverse_proxy localhost:3456\n}\n' "$CADDYFILE"
-              REBUILD=$(find /opt -name "rebuild-config.sh" 2>/dev/null | head -1)
-              if [ -n "$REBUILD" ]; then
-                "$REBUILD" --reload && echo "Caddy reloaded via $REBUILD"
-              else
-                caddy adapt --config "$CADDYFILE" --adapter caddyfile | \
-                  curl -sf -X POST http://localhost:2019/load \
-                    -H "Content-Type: application/json" \
-                    -d @- && echo "Caddy reloaded via admin API"
-              fi
+              /opt/openclaw-source/caddy/rebuild-config.sh --reload
+              echo "Caddy reloaded"
             else
               echo "Caddy already configured for snacks.dunky.ai"
             fi
