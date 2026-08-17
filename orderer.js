@@ -1,5 +1,7 @@
 const { chromium } = require('playwright');
 
+const STORE_SLUGS = { Costco: 'costco', Safeway: 'safeway' };
+
 async function injectSessionCookies(context) {
   const b64 = process.env.INSTACART_COOKIES_B64;
   const raw = b64 ? Buffer.from(b64, 'base64').toString('utf8') : process.env.INSTACART_COOKIES;
@@ -19,6 +21,7 @@ async function injectSessionCookies(context) {
 }
 
 async function placeOrder(store, items, onProgress) {
+  const slug = STORE_SLUGS[store] || store.toLowerCase();
   onProgress(`Starting ${store} order — ${items.length} item(s)…`);
 
   const browser = await chromium.launch({
@@ -35,84 +38,84 @@ async function placeOrder(store, items, onProgress) {
   const shot = (label) => page.screenshot({ path: `/tmp/order-${ts}-${label}.png` }).catch(() => {});
 
   try {
-    // Bail early if none of the items have a product URL
-    const orderable = items.filter(i => i.product_url);
-    if (!orderable.length) {
-      throw new Error('None of the cart items have a product URL — remove them and re-add from a fresh search');
-    }
+    // Add each item by searching for it in the store
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      // Use first clause of product name (before first comma) as search term
+      const searchTerm = item.name.split(',')[0].trim();
+      onProgress(`Searching for "${searchTerm}" (${i + 1}/${items.length})…`);
 
-    // Add each item to cart by navigating to its product page
-    for (let i = 0; i < orderable.length; i++) {
-      const item = orderable[i];
+      const searchUrl = `https://www.instacart.com/store/${slug}/s?k=${encodeURIComponent(searchTerm)}`;
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.waitForTimeout(3000);
+      await shot(`search-${i}`);
 
-      onProgress(`Adding "${item.name}" (${i + 1}/${items.length})…`);
-      await page.goto(item.product_url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForTimeout(2000);
-      await shot(`item${i}`);
-
+      // Find the "Add" button on the first product card
+      // Instacart renders add buttons as "+" or "Add" — grab the first visible one
       const addBtn = page.locator([
-        'button:has-text("Add to cart")',
         'button[aria-label*="Add to cart" i]',
-        'button:has-text("Add")',
+        'button[aria-label*="Add" i][aria-label*="' + searchTerm.split(' ')[0] + '" i]',
+        'button:has-text("+")',
       ].join(', ')).first();
 
       try {
-        await addBtn.click({ timeout: 8000 });
-        await page.waitForTimeout(1500);
+        await addBtn.waitFor({ state: 'visible', timeout: 8000 });
+        await addBtn.click();
+        await page.waitForTimeout(2000);
         onProgress(`Added "${item.name}" ✓`);
+        await shot(`added-${i}`);
       } catch (err) {
-        onProgress(`Could not click Add for "${item.name}": ${err.message}`);
+        onProgress(`Could not add "${item.name}": ${err.message}`);
+        await shot(`failed-${i}`);
       }
     }
 
-    // Go to cart
-    onProgress('Navigating to cart…');
-    await page.goto('https://www.instacart.com/cart', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // Navigate to the store's cart / checkout
+    onProgress('Going to checkout…');
+    const cartUrl = `https://www.instacart.com/store/${slug}/checkout`;
+    await page.goto(cartUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForTimeout(3000);
-    await shot('cart');
-
-    // "Go to checkout" or "Checkout" button
-    const checkoutBtn = page.locator([
-      'button:has-text("Go to checkout")',
-      'a:has-text("Go to checkout")',
-      'button:has-text("Checkout")',
-    ].join(', ')).first();
-    await checkoutBtn.click({ timeout: 10_000 });
-    await page.waitForTimeout(4000);
     await shot('checkout1');
 
-    onProgress('On checkout page — handling delivery options…');
-
-    // Pick first available delivery window if a time-picker is visible
+    // Some flows land on a cart summary page first — look for "Go to checkout"
     try {
-      const firstSlot = page.locator('[data-testid*="timeslot"], button[class*="timeslot"], button[class*="TimeSlot"]').first();
-      if (await firstSlot.isVisible({ timeout: 3000 })) {
-        await firstSlot.click();
-        await page.waitForTimeout(1000);
-        onProgress('Selected first delivery window');
+      const goBtn = page.locator('button:has-text("Go to checkout"), a:has-text("Go to checkout")').first();
+      if (await goBtn.isVisible({ timeout: 3000 })) {
+        await goBtn.click();
+        await page.waitForTimeout(3000);
+        await shot('checkout2');
       }
-    } catch { /* no time picker — already selected or pickup */ }
+    } catch { /* already on checkout */ }
 
-    await shot('checkout2');
+    onProgress('Handling delivery options…');
+
+    // Pick first available delivery time slot if visible
+    try {
+      const slot = page.locator('[data-testid*="timeslot"], button[class*="timeslot" i], button[class*="TimeSlot"]').first();
+      if (await slot.isVisible({ timeout: 3000 })) {
+        await slot.click();
+        await page.waitForTimeout(1000);
+        onProgress('Selected delivery window');
+      }
+    } catch { /* no picker shown */ }
+
+    await shot('before-place');
 
     // Place order
     onProgress('Placing order…');
     const placeBtn = page.locator([
       'button:has-text("Place order")',
       'button:has-text("Place your order")',
-      'button[data-testid*="place-order"]',
+      'button[data-testid*="place"]',
     ].join(', ')).first();
-    await placeBtn.click({ timeout: 15_000 });
+    await placeBtn.waitFor({ state: 'visible', timeout: 15_000 });
+    await placeBtn.click();
     await page.waitForTimeout(5000);
     await shot('placed');
 
     const finalUrl = page.url();
-    const success = /confirm|order[_-]?detail|thank/i.test(finalUrl);
-    if (success) {
-      onProgress(`Order placed! Confirmation: ${finalUrl}`);
-    } else {
-      onProgress(`Submitted — final URL: ${finalUrl} (check /tmp/order-${ts}-placed.png)`);
-    }
+    const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+    onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
     return { success, url: finalUrl };
 
   } catch (err) {

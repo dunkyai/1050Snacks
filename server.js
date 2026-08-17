@@ -42,6 +42,7 @@ async function triggerOrder(store) {
 
   const items = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(store);
   if (!items.length) { orderInProgress.delete(store); return; }
+  // product_url is optional — orderer searches by name if URL missing
 
   // Mark items as 'ordering' immediately so they don't get re-triggered
   const ids = items.map(i => i.id);
