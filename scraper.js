@@ -87,71 +87,60 @@ async function scrapeStore(page, storeLinks, store, query) {
     await page.screenshot({ path: `/tmp/debug-${store.slug}-search.png` });
     console.log(`[${store.name}] search page: ${page.url()} — title: ${await page.title()}`);
 
-    // Wait for any price to appear — more reliable than guessing card class names
-    await page.waitForSelector('[aria-label*="$"], [class*="price"]', { timeout: 12_000 });
+    await page.waitForTimeout(4000);
 
-    for (let i = 0; i < 3; i++) {
-      await page.evaluate(() => window.scrollBy(0, 600));
-      await page.waitForTimeout(800);
-    }
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(500);
+    // Dump HTML structure for selector diagnosis
+    const htmlDump = await page.evaluate(() => {
+      const main = document.querySelector('main, [role="main"], #main-content, .e-main') || document.body;
+      return main.innerHTML.slice(0, 6000);
+    });
+    require('fs').writeFileSync('/tmp/instacart-dump.html', htmlDump);
+    console.log(`[${store.name}] HTML dump written (${htmlDump.length} chars)`);
 
     const products = await page.evaluate(() => {
-      // Log data-testid values present on the page for debugging
-      const testIds = [...new Set(Array.from(document.querySelectorAll('[data-testid]')).map(e => e.dataset.testid))];
-      console.log('data-testids on page:', testIds.join(', '));
+      // Walk all text nodes — find any that look like a price, climb to the card container
+      const results = [];
+      const seen = new Set();
+      document.querySelectorAll('*').forEach(el => {
+        if (el.children.length > 0) return;
+        const txt = el.textContent.trim();
+        if (!/^\$\d/.test(txt)) return;
+        // Climb up to a container that likely wraps the whole product card
+        let card = el;
+        for (let i = 0; i < 6; i++) {
+          if (!card.parentElement) break;
+          card = card.parentElement;
+          if (card.querySelectorAll('img').length > 0) break;
+        }
+        if (seen.has(card)) return;
+        seen.add(card);
 
-      // Try card selectors — Instacart uses generated class names so cast a wide net
-      const selectors = [
-        '[data-testid="item-card"]',
-        '[data-testid="itemgrid-cell"]',
-        '[data-testid="search-result-item"]',
-        'article[class*="ItemCard"]',
-        'li[class*="item-card"]',
-        '[class*="item_card"]',
-        'li[class*="ItemBrowser"]',
-        // Fallback: any li containing a price
-        'li:has([aria-label*="$"])',
-        'li:has([class*="price"])',
-      ];
-      let cards = [];
-      for (const sel of selectors) {
-        try { cards = Array.from(document.querySelectorAll(sel)); } catch { cards = []; }
-        if (cards.length > 0) { console.log('Matched selector:', sel, cards.length); break; }
-      }
-
-      return cards.slice(0, 10).map(card => {
-        const nameEl = card.querySelector(
-          '[data-testid*="name" i], [data-testid*="title" i], h2, h3, a[class*="name" i]'
-        );
-        const name = nameEl?.textContent?.trim() || null;
-
-        const priceEl = card.querySelector(
-          '[data-testid*="price" i], [aria-label*="$"], [class*="price"]'
-        );
-        const priceText = priceEl?.textContent?.trim() || priceEl?.getAttribute('aria-label') || '';
-        const priceMatch = priceText.match(/\$([\d,.]+)/);
-        const price = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : null;
-
-        const sizeEl = card.querySelector(
-          '[data-testid*="size" i], [data-testid*="unit" i], [class*="size"], [class*="unit"], small'
-        );
-        const size = sizeEl?.textContent?.trim() || '';
-
-        return { name, price, size };
-      }).filter(p => p.name && p.price);
+        const price = parseFloat(txt.replace(/[^0-9.]/g, ''));
+        const img = card.querySelector('img');
+        const name = img?.alt || card.querySelector('a')?.textContent?.trim() || null;
+        const allText = card.innerText || '';
+        results.push({ name, price, allText: allText.slice(0, 200) });
+      });
+      return results.slice(0, 15);
     });
 
-    return products.map(p => {
-      const servings = parseServings(p.name, p.size);
-      return {
-        ...p,
-        servings: servings ? servings.count : null,
-        servingsBasis: servings ? servings.basis : null,
-        pricePerMeal: servings ? +(p.price / servings.count).toFixed(2) : null,
-      };
-    }).sort((a, b) => (a.pricePerMeal ?? Infinity) - (b.pricePerMeal ?? Infinity));
+    console.log(`[${store.name}] raw extracted:`, JSON.stringify(products.slice(0, 3)));
+
+    return products
+      .filter(p => p.name && p.price && p.price < 500)
+      .map(p => {
+        const size = (p.allText.match(/\d+[\s-]*(oz|lb|ct|count|pack|g)\b/i) || [])[0] || '';
+        const servings = parseServings(p.name, size);
+        return {
+          name: p.name,
+          price: p.price,
+          size,
+          servings: servings ? servings.count : null,
+          servingsBasis: servings ? servings.basis : null,
+          pricePerMeal: servings ? +(p.price / servings.count).toFixed(2) : null,
+        };
+      })
+      .sort((a, b) => (a.pricePerMeal ?? Infinity) - (b.pricePerMeal ?? Infinity));
 
   } catch (err) {
     console.error(`[${store.name}] scrape error: ${err.message}`);
