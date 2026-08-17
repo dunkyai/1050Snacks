@@ -69,6 +69,12 @@ async function scrapeStore(page, store, query) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForTimeout(3000);
 
+    // Debug: capture page state before waiting for products
+    const pageTitle = await page.title();
+    const pageUrl = page.url();
+    console.log(`[${store.name}] title="${pageTitle}" url=${pageUrl}`);
+    await page.screenshot({ path: `/tmp/debug-${store.slug}.png` });
+
     await page.waitForSelector(
       '[data-testid="item-card"], article[class*="ItemCard"], [class*="item-card"], li[class*="item"]',
       { timeout: 12_000 }
