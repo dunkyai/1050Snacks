@@ -77,6 +77,15 @@ async function scrapeStore(page, storeLinks, store, query) {
     await page.screenshot({ path: `/tmp/debug-${store.slug}-front.png` });
     console.log(`[${store.name}] storefront url after nav: ${page.url()}`);
 
+    // Dismiss any dialog/overlay that may be blocking the search box
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    try {
+      const closeBtn = page.locator('[data-dialog-ref] button, [role="dialog"] button[aria-label*="close" i], [role="dialog"] button:first-child').first();
+      await closeBtn.click({ timeout: 2000 });
+      await page.waitForTimeout(300);
+    } catch {}
+
     // Use the search box on the storefront — avoids direct /search_v3/ URL which 404s without a session
     const searchInput = page.locator('input[placeholder*="Search" i], input[aria-label*="Search" i]').first();
     await searchInput.click({ timeout: 8000 });
