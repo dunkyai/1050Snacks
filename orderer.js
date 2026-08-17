@@ -70,34 +70,36 @@ async function placeOrder(store, items, onProgress) {
       }
     }
 
-    // Navigate to the store's cart / checkout
-    onProgress('Going to checkout…');
-    const cartUrl = `https://www.instacart.com/store/${slug}/checkout`;
-    await page.goto(cartUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.waitForTimeout(3000);
+    // Click the cart button (top-right) to open the cart panel
+    onProgress('Opening cart…');
+    const cartBtn = page.locator([
+      'a[href*="/cart"]',
+      'button[aria-label*="cart" i]',
+      'a[aria-label*="cart" i]',
+    ].join(', ')).first();
+    await cartBtn.click({ timeout: 8000 });
+    await page.waitForTimeout(2000);
     await shot('checkout1');
 
-    // Some flows land on a cart summary page first — look for "Go to checkout"
-    try {
-      const goBtn = page.locator('button:has-text("Go to checkout"), a:has-text("Go to checkout")').first();
-      if (await goBtn.isVisible({ timeout: 3000 })) {
-        await goBtn.click();
-        await page.waitForTimeout(3000);
-        await shot('checkout2');
-      }
-    } catch { /* already on checkout */ }
+    // "Go to checkout" button in the cart panel
+    const goBtn = page.locator('button:has-text("Go to checkout"), a:has-text("Go to checkout")').first();
+    await goBtn.waitFor({ state: 'visible', timeout: 8000 });
+    await goBtn.click();
+    await page.waitForTimeout(4000);
+    await shot('checkout2');
 
-    onProgress('Handling delivery options…');
+    onProgress('On checkout page…');
 
-    // Pick first available delivery time slot if visible
+    // Delivery time is pre-selected from account settings — skip time picker.
+    // If a time picker does appear, pick the first available slot.
     try {
-      const slot = page.locator('[data-testid*="timeslot"], button[class*="timeslot" i], button[class*="TimeSlot"]').first();
-      if (await slot.isVisible({ timeout: 3000 })) {
+      const slot = page.locator('button[class*="timeslot" i], [data-testid*="timeslot"]').first();
+      if (await slot.isVisible({ timeout: 2000 })) {
         await slot.click();
         await page.waitForTimeout(1000);
         onProgress('Selected delivery window');
       }
-    } catch { /* no picker shown */ }
+    } catch { /* already pre-selected */ }
 
     await shot('before-place');
 
