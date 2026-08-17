@@ -1,12 +1,14 @@
 {
   "name": "1050snacks",
   "version": "1.0.0",
-  "description": "CLI agent to find the cheapest office snacks on Instacart (Costco + Safeway) for 1050 Sansome SF",
-  "main": "index.js",
+  "description": "Web app to find the cheapest office snacks on Instacart (Costco + Safeway) for 1050 Sansome SF",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js",
+    "cli": "node index.js"
   },
   "dependencies": {
+    "express": "^4.19.2",
     "playwright": "^1.47.0"
   }
 }
