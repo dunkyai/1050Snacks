@@ -90,7 +90,27 @@ async function placeOrder(store, items, onProgress) {
 
     onProgress('On checkout page — waiting for it to load…');
 
-    // Checkout is JS-heavy; wait for any primary action button to appear
+    // Step 1: Instacart shows a delivery-time picker first; click "Continue" to proceed.
+    // The skeleton can take up to 60s to resolve on headless Chromium.
+    const continueBtn = page.locator([
+      'button:has-text("Continue")',
+      'a:has-text("Continue")',
+    ].join(', ')).first();
+
+    try {
+      await continueBtn.waitFor({ state: 'visible', timeout: 60_000 });
+      await shot('before-continue');
+      onProgress('Clicking Continue (delivery time confirmation)…');
+      await continueBtn.click();
+      await page.waitForTimeout(3000);
+      await shot('after-continue');
+    } catch {
+      // Some flows skip this step — fall through to Place order directly
+      onProgress('No Continue button found — proceeding to Place order…');
+      await shot('no-continue');
+    }
+
+    // Step 2: Now wait for the final "Place order" button
     const placeBtn = page.locator([
       'button:has-text("Place order")',
       'button:has-text("Place your order")',
