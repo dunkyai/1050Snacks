@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { scrapeInstacart } = require('./scraper');
 const { placeOrder } = require('./orderer');
@@ -8,7 +9,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ORDER_THRESHOLD = parseFloat(process.env.ORDER_THRESHOLD || '35');
 
-// Persist cart in a volume-mounted directory so it survives container restarts
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const db = new Database(path.join(DATA_DIR, 'snacks.db'));
 db.exec(`
@@ -20,7 +20,8 @@ db.exec(`
     size        TEXT,
     product_url TEXT,
     added_at    TEXT    DEFAULT (datetime('now')),
-    status      TEXT    DEFAULT 'pending'
+    status      TEXT    DEFAULT 'pending',
+    slack_channel TEXT
   );
   CREATE TABLE IF NOT EXISTS orders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,24 +34,107 @@ db.exec(`
   );
 `);
 
+// Migrate existing DB if slack_channel column is missing
+try { db.exec('ALTER TABLE cart_items ADD COLUMN slack_channel TEXT'); } catch {}
+
 // On startup, reset any orders/items left mid-flight by a previous crash or redeploy
 db.exec(`
   UPDATE orders    SET status = 'failed'  WHERE status = 'placing';
   UPDATE cart_items SET status = 'pending' WHERE status = 'ordering';
 `);
 
-// Prevent two concurrent checkout runs for the same store
 const orderInProgress = new Set();
 
+// ── Slack ─────────────────────────────────────────────────────────────────────
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+
+function verifySlack(req, res, next) {
+  if (!SLACK_SIGNING_SECRET) return next(); // skip in dev
+  const ts = req.headers['x-slack-request-timestamp'];
+  const sig = req.headers['x-slack-signature'];
+  if (!ts || !sig) return res.sendStatus(403);
+  if (Math.abs(Date.now() / 1000 - ts) > 300) return res.sendStatus(403);
+  const hmac = crypto.createHmac('sha256', SLACK_SIGNING_SECRET)
+    .update(`v0:${ts}:${req.rawBody}`)
+    .digest('hex');
+  if (`v0=${hmac}` !== sig) return res.sendStatus(403);
+  next();
+}
+
+function captureRawBody(req, res, buf) { req.rawBody = buf.toString(); }
+
+async function slackPost(url, body) {
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+async function slackApi(method, body) {
+  if (!SLACK_BOT_TOKEN) return;
+  await fetch(`https://slack.com/api/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+    body: JSON.stringify(body),
+  });
+}
+
+function cartConfirmBlocks(store, total, items) {
+  return {
+    text: `🛒 ${store} cart is at $${total.toFixed(2)} — ready to order?`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `🛒 *${store} cart — $${total.toFixed(2)}* (${items.length} item${items.length !== 1 ? 's' : ''})\n${items.map(i => `• ${i.name} — $${i.price.toFixed(2)}`).join('\n')}\n\nReady to order?`,
+        },
+      },
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', text: { type: 'plain_text', text: '✅  Order now' }, style: 'primary', action_id: 'confirm_order', value: store },
+          { type: 'button', text: { type: 'plain_text', text: '➕  Keep adding' }, action_id: 'skip_order', value: store },
+        ],
+      },
+    ],
+  };
+}
+
+function searchBlocks(store, products) {
+  const blocks = [{ type: 'header', text: { type: 'plain_text', text: `${store} results` } }];
+  for (const p of products.slice(0, 8)) {
+    const ppm = p.pricePerMeal != null ? ` · *$${p.pricePerMeal.toFixed(2)}/snack*` : '';
+    const size = p.size ? ` · ${p.size}` : '';
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
+      accessory: {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Add to Cart' },
+        action_id: 'add_to_cart',
+        value: JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '' }).slice(0, 2000),
+      },
+    });
+  }
+  if (!products.length) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `No results found at ${store}.` } });
+  }
+  return blocks;
+}
+
+// ── Order runner ──────────────────────────────────────────────────────────────
 async function triggerOrder(store) {
   if (orderInProgress.has(store)) return;
   orderInProgress.add(store);
 
   const items = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(store);
   if (!items.length) { orderInProgress.delete(store); return; }
-  // product_url is optional — orderer searches by name if URL missing
 
-  // Mark items as 'ordering' immediately so they don't get re-triggered
+  const slackChannel = items.find(i => i.slack_channel)?.slack_channel;
+
   const ids = items.map(i => i.id);
   db.prepare(`UPDATE cart_items SET status = 'ordering' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 
@@ -69,26 +153,31 @@ async function triggerOrder(store) {
     const finalStatus = result.success ? 'placed' : 'check_screenshots';
     db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(finalStatus, orderId);
     db.prepare(`UPDATE cart_items SET status = 'ordered' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    if (slackChannel) {
+      const icon = result.success ? '✅' : '⚠️';
+      await slackApi('chat.postMessage', { channel: slackChannel, text: `${icon} ${store} order ${finalStatus}. ${result.url || ''}` });
+    }
   } catch (err) {
     onProgress(`Error: ${err.message}`);
     db.prepare('UPDATE orders SET status = ?, log = ? WHERE id = ?').run('failed', JSON.stringify(log), orderId);
-    // Put items back to pending so they can be retried
     db.prepare(`UPDATE cart_items SET status = 'pending' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    if (slackChannel) {
+      await slackApi('chat.postMessage', { channel: slackChannel, text: `❌ ${store} order failed: ${err.message}` });
+    }
   } finally {
     orderInProgress.delete(store);
   }
 }
 
+// ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-store');
-    }
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-store');
   },
 }));
 
-// --- Search (SSE) ---
+// ── Search (SSE) ──────────────────────────────────────────────────────────────
 app.get('/search', async (req, res) => {
   const query = (req.query.q || '').trim();
   if (!query) { res.status(400).json({ error: 'Missing ?q=' }); return; }
@@ -110,7 +199,7 @@ app.get('/search', async (req, res) => {
   res.end();
 });
 
-// --- Cart ---
+// ── Cart (web UI) ─────────────────────────────────────────────────────────────
 app.get('/cart', (req, res) => {
   const items = db.prepare("SELECT * FROM cart_items WHERE status IN ('pending','ordering') ORDER BY added_at").all();
   const byStore = {};
@@ -119,32 +208,23 @@ app.get('/cart', (req, res) => {
     byStore[item.store].items.push(item);
     byStore[item.store].total = +(byStore[item.store].total + item.price).toFixed(2);
   }
-
-  // Attach latest order status per store
   const latestOrders = db.prepare(`
     SELECT store, status, log, placed_at FROM orders
     WHERE id IN (SELECT MAX(id) FROM orders GROUP BY store)
   `).all();
   const orderByStore = Object.fromEntries(latestOrders.map(o => [o.store, o]));
-
   res.json({ stores: byStore, threshold: ORDER_THRESHOLD, orders: orderByStore });
 });
 
 app.post('/cart/add', (req, res) => {
   const { store, name, price, size, productUrl } = req.body;
-  if (!store || !name || price == null) {
-    return res.status(400).json({ error: 'store, name, price required' });
-  }
+  if (!store || !name || price == null) return res.status(400).json({ error: 'store, name, price required' });
 
   db.prepare('INSERT INTO cart_items (store, name, price, size, product_url) VALUES (?, ?, ?, ?, ?)')
     .run(store, name, price, size || null, productUrl || null);
 
   const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(store);
   const rounded = +(total || 0).toFixed(2);
-
-  if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(store)) {
-    triggerOrder(store).catch(err => console.error('triggerOrder failed:', err.message));
-  }
 
   res.json({ total: rounded, threshold: ORDER_THRESHOLD, ordering: orderInProgress.has(store) });
 });
@@ -154,12 +234,111 @@ app.delete('/cart/item/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Manual order trigger (for when you want to order below the threshold)
 app.post('/cart/order/:store', async (req, res) => {
   const { store } = req.params;
   if (orderInProgress.has(store)) return res.json({ ok: false, message: 'Order already in progress' });
   triggerOrder(store).catch(err => console.error('manual triggerOrder failed:', err.message));
   res.json({ ok: true, message: `Order started for ${store}` });
 });
+
+// ── Slack slash command: /snacks [query] ──────────────────────────────────────
+app.post('/slack/search',
+  express.urlencoded({ extended: true, verify: captureRawBody }),
+  verifySlack,
+  async (req, res) => {
+    const { text, response_url, channel_id } = req.body;
+    const query = (text || '').trim();
+    if (!query) {
+      return res.json({ response_type: 'ephemeral', text: 'Usage: `/snacks chips` — enter a snack to search for.' });
+    }
+
+    // Ack immediately — Slack requires a response within 3s
+    res.json({ response_type: 'in_channel', text: `Searching Costco for *${query}*…` });
+
+    try {
+      const storeResults = [];
+      await scrapeInstacart(query, (result) => storeResults.push(result));
+
+      const allBlocks = [];
+      for (const { store, products } of storeResults) {
+        allBlocks.push(...searchBlocks(store, products));
+        allBlocks.push({ type: 'divider' });
+      }
+
+      await slackPost(response_url, {
+        response_type: 'in_channel',
+        replace_original: true,
+        blocks: allBlocks.slice(0, 50),
+        text: `Costco results for "${query}"`,
+      });
+    } catch (err) {
+      await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Error searching: ${err.message}` });
+    }
+  }
+);
+
+// ── Slack interactions (button clicks) ───────────────────────────────────────
+app.post('/slack/interact',
+  express.urlencoded({ extended: true, verify: captureRawBody }),
+  verifySlack,
+  async (req, res) => {
+    let payload;
+    try { payload = JSON.parse(req.body.payload); } catch { return res.sendStatus(400); }
+
+    const action = payload.actions?.[0];
+    if (!action) return res.sendStatus(400);
+
+    const channelId = payload.channel?.id;
+    const responseUrl = payload.response_url;
+
+    res.sendStatus(200); // Ack immediately
+
+    if (action.action_id === 'add_to_cart') {
+      const item = JSON.parse(action.value);
+
+      db.prepare('INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)')
+        .run(item.store, item.name, item.price, item.size || null, channelId);
+
+      const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(item.store);
+      const rounded = +(total || 0).toFixed(2);
+      const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(item.store);
+
+      if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(item.store)) {
+        await slackApi('chat.postMessage', {
+          channel: channelId,
+          ...cartConfirmBlocks(item.store, rounded, pendingItems),
+        });
+      } else {
+        await slackPost(responseUrl, {
+          response_type: 'ephemeral',
+          text: `✓ Added *${item.name}* — cart total $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
+        });
+      }
+    }
+
+    if (action.action_id === 'confirm_order') {
+      const store = action.value;
+      if (orderInProgress.has(store)) return;
+
+      await slackPost(responseUrl, {
+        response_type: 'in_channel',
+        replace_original: true,
+        text: `⏳ Placing ${store} order…`,
+      });
+
+      triggerOrder(store).catch(async (err) => {
+        await slackApi('chat.postMessage', { channel: channelId, text: `❌ Order failed: ${err.message}` });
+      });
+    }
+
+    if (action.action_id === 'skip_order') {
+      await slackPost(responseUrl, {
+        response_type: 'in_channel',
+        replace_original: true,
+        text: `➕ Got it — I'll check in again after the next item is added.`,
+      });
+    }
+  }
+);
 
 app.listen(PORT, () => console.log(`1050Snacks running on port ${PORT}`));

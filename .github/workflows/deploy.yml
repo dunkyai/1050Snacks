@@ -70,6 +70,8 @@ jobs:
               -p 3456:3000 \
               -v /opt/1050snacks-data:/data \
               -e "INSTACART_COOKIES_B64=$IC_COOKIES" \
+              -e "SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}" \
+              -e "SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
