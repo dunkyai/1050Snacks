@@ -153,6 +153,36 @@ async function scrapeStore(page, storeLinks, store, query) {
   }
 }
 
+// Cookie-Editor exports an array of cookie objects; Playwright wants a slightly different shape.
+async function injectSessionCookies(context) {
+  const b64 = process.env.INSTACART_COOKIES_B64;
+  const raw = b64
+    ? Buffer.from(b64, 'base64').toString('utf8')
+    : process.env.INSTACART_COOKIES;
+
+  if (!raw) {
+    console.log('No session cookies configured — running without login');
+    return;
+  }
+
+  const exported = JSON.parse(raw);
+  const cookies = exported
+    .map(c => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+      path: c.path || '/',
+      expires: c.expirationDate ?? -1,
+      httpOnly: c.httpOnly ?? false,
+      secure: c.secure ?? false,
+      sameSite: ['Strict', 'Lax', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax',
+    }))
+    .filter(c => c.name && c.value);
+
+  await context.addCookies(cookies);
+  console.log(`Injected ${cookies.length} session cookies`);
+}
+
 async function scrapeInstacart(query, onStoreResult) {
   const browser = await chromium.launch({
     headless: true,
@@ -171,6 +201,7 @@ async function scrapeInstacart(query, onStoreResult) {
     viewport: { width: 1280, height: 900 },
   });
 
+  await injectSessionCookies(context);
   const page = await context.newPage();
 
   try {

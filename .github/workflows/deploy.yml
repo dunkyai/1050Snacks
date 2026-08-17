@@ -27,6 +27,13 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "135.181.222.36 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr59jVWvy6FCR7dWVT3OPnNS7EGj77t38eCDnDgkueL" >> ~/.ssh/known_hosts
 
+      - name: Stage cookies for deploy
+        env:
+          INSTACART_COOKIES: ${{ secrets.INSTACART_COOKIES }}
+        run: |
+          printf '%s' "$INSTACART_COOKIES" | base64 -w0 > /tmp/ic.b64
+          scp -i ~/.ssh/id_ed25519 /tmp/ic.b64 root@135.181.222.36:/tmp/ic.b64
+
       - name: Build and deploy on server
         run: |
           ssh -i ~/.ssh/id_ed25519 root@135.181.222.36 'bash -s' << 'ENDSSH'
@@ -47,6 +54,10 @@ jobs:
             echo "Building Docker image..."
             docker build -t 1050snacks .
 
+            # Read cookies (base64-encoded to survive shell quoting)
+            IC_COOKIES=$(cat /tmp/ic.b64 | tr -d '\n')
+            rm -f /tmp/ic.b64
+
             # Replace container
             docker stop 1050snacks 2>/dev/null || true
             docker rm   1050snacks 2>/dev/null || true
@@ -54,6 +65,7 @@ jobs:
               --name 1050snacks \
               --restart unless-stopped \
               -p 3456:3000 \
+              -e "INSTACART_COOKIES_B64=$IC_COOKIES" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
