@@ -59,24 +59,17 @@ jobs:
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
             echo "Done — container status: $STATUS"
 
-            # Ensure snacks.dunky.ai block is in Caddy with correct SSE config.
-            # Always remove and re-add to pick up config changes (e.g. flush_interval).
+            # Ensure snacks.dunky.ai is in Caddy with SSE flush_interval support
             CADDYFILE="/opt/agentpost/Caddyfile"
-            # Remove existing snacks block (handles both old and new format)
-            python3 - "$CADDYFILE" <<'PYEOF'
-import re, sys
-path = sys.argv[1]
-text = open(path).read()
-# Remove the comment + block for snacks.dunky.ai
-text = re.sub(
-    r'# 1050 Snack Finder[^\n]*\nsnacks\.dunky\.ai \{[^}]*\}\n*',
-    '', text, flags=re.DOTALL
-)
-open(path, 'w').write(text)
-PYEOF
-            # Insert the block with SSE support before the wildcard catch-all
-            SNACKS_BLOCK='# 1050 Snack Finder\nsnacks.dunky.ai {\n    tls {\n        dns cloudflare {env.CLOUDFLARE_API_TOKEN}\n    }\n    reverse_proxy localhost:3456 {\n        flush_interval -1\n        transport http {\n            response_header_timeout 90s\n        }\n    }\n}\n'
-            sed -i "s|# Wildcard TLS|${SNACKS_BLOCK}\n# Wildcard TLS|" "$CADDYFILE"
-            /opt/openclaw-source/caddy/rebuild-config.sh --reload
-            echo "Caddy config updated and reloaded"
+            if ! grep -q "flush_interval" "$CADDYFILE"; then
+              if grep -q "^snacks\.dunky\.ai" "$CADDYFILE"; then
+                sed -i '/^snacks\.dunky\.ai/,/^}/{s|    reverse_proxy localhost:3456$|    reverse_proxy localhost:3456 {\n        flush_interval -1\n        transport http {\n            response_header_timeout 90s\n        }\n    }|}' "$CADDYFILE"
+              else
+                sed -i "s|# Wildcard TLS|# 1050 Snack Finder\nsnacks.dunky.ai {\n    tls {\n        dns cloudflare {env.CLOUDFLARE_API_TOKEN}\n    }\n    reverse_proxy localhost:3456 {\n        flush_interval -1\n        transport http {\n            response_header_timeout 90s\n        }\n    }\n}\n\n# Wildcard TLS|" "$CADDYFILE"
+              fi
+              /opt/openclaw-source/caddy/rebuild-config.sh --reload
+              echo "Caddy updated with SSE config"
+            else
+              echo "Caddy already has flush_interval, skipping"
+            fi
           ENDSSH
