@@ -36,60 +36,41 @@ function parseServings(title, size) {
   return null;
 }
 
-async function setDeliveryAddress(page) {
+// Load the Instacart homepage and extract store URLs from the store list.
+// The server IP resolves to SF Bay Area so stores are already shown.
+async function loadHomepageAndGetStoreUrls(page) {
   await page.goto('https://www.instacart.com', { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(3000);
   await page.screenshot({ path: '/tmp/debug-homepage.png' });
   console.log('Homepage loaded, URL:', page.url());
 
-  const addressInput = page.locator([
-    'input[placeholder*="ddress" i]',
-    'input[placeholder*="ip code" i]',
-    '[data-testid="address-input"]',
-    '[aria-label*="address" i]',
-  ].join(', ')).first();
+  // Pull all store links visible on the homepage
+  const storeLinks = await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('a[href*="/store/"]'));
+    return links.map(a => ({
+      href: a.href,
+      text: a.innerText?.trim() || a.getAttribute('aria-label') || '',
+    })).filter(l => l.href && !l.href.includes('/search'));
+  });
 
-  await addressInput.click({ timeout: 8000 });
-  await addressInput.fill(DELIVERY_ADDRESS);
-  await page.waitForTimeout(2000);
-
-  const suggestion = page.locator(
-    '[data-testid="address-suggestion"], [role="option"], .pac-item, li[class*="suggestion"]'
-  ).first();
-  await suggestion.click({ timeout: 8000 });
-  await page.waitForTimeout(3000);
-  console.log('Address set, current URL:', page.url());
+  console.log('Store links found:', storeLinks.map(l => `${l.text}: ${l.href}`).join(' | '));
+  return storeLinks;
 }
 
-// Find the store URL by browsing the Instacart store list after address is set
-async function findStoreUrl(page, storeName) {
-  await page.goto('https://www.instacart.com/store', { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  await page.screenshot({ path: `/tmp/debug-storelist.png` });
-
-  // Try text-based link match first
-  const storeLink = page.locator(`a[href*="/store/"]:has-text("${storeName}")`).first();
-  let href = await storeLink.getAttribute('href', { timeout: 8000 }).catch(() => null);
-
-  // Fallback: aria-label match (store name sometimes in image alt, not visible text)
-  if (!href) {
-    href = await page.locator(`a[aria-label*="${storeName}" i][href*="/store/"]`)
-      .first().getAttribute('href', { timeout: 4000 }).catch(() => null);
-  }
-
-  if (!href) throw new Error(`Store link for "${storeName}" not found on /store page`);
-
-  const base = href.startsWith('http') ? href : `https://www.instacart.com${href}`;
-  console.log(`[${storeName}] found store URL: ${base}`);
-  return base.split('?')[0];
+function pickStoreUrl(storeLinks, storeName) {
+  const name = storeName.toLowerCase();
+  // Exact text match first
+  let match = storeLinks.find(l => l.text.toLowerCase().startsWith(name));
+  // Slug-based fallback
+  if (!match) match = storeLinks.find(l => l.href.toLowerCase().includes(name.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')));
+  return match ? match.href.split('?')[0] : null;
 }
 
-async function scrapeStore(page, store, query) {
+async function scrapeStore(page, storeLinks, store, query) {
   try {
-    const storeBase = await findStoreUrl(page, store.name).catch(() => {
-      console.log(`[${store.name}] store link not found, falling back to slug`);
-      return `https://www.instacart.com/store/${store.slug}`;
-    });
+    const storeBase = pickStoreUrl(storeLinks, store.name)
+      || `https://www.instacart.com/store/${store.slug}`;
+    console.log(`[${store.name}] using base: ${storeBase}`);
 
     const url = `${storeBase}/search_v3/${encodeURIComponent(query)}`;
     console.log(`[${store.name}] searching: ${url}`);
@@ -183,12 +164,10 @@ async function scrapeInstacart(query, onStoreResult) {
   const page = await context.newPage();
 
   try {
-    await setDeliveryAddress(page).catch(err => {
-      console.warn('Address setting failed (will use slug URLs):', err.message);
-    });
+    const storeLinks = await loadHomepageAndGetStoreUrls(page);
 
     for (const store of STORES) {
-      const products = await scrapeStore(page, store, query);
+      const products = await scrapeStore(page, storeLinks, store, query);
       onStoreResult({ store: store.name, products });
     }
   } finally {
