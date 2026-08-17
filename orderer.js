@@ -102,8 +102,25 @@ async function placeOrder(store, items, onProgress) {
       await shot('before-continue');
       onProgress('Clicking Continue (delivery time confirmation)…');
       await continueBtn.click();
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
       await shot('after-continue');
+
+      // Instacart may show a "Mobile number" (or similar) interstitial modal — dismiss it
+      try {
+        const modalClose = page.locator([
+          'button[aria-label*="close" i]',
+          'button[aria-label*="dismiss" i]',
+          '[role="dialog"] button:has(svg)',
+          '[role="dialog"] button:first-child',
+        ].join(', ')).first();
+        await modalClose.waitFor({ state: 'visible', timeout: 5000 });
+        await modalClose.click();
+        await page.waitForTimeout(1500);
+        await shot('dismissed-modal');
+        onProgress('Dismissed interstitial modal…');
+      } catch {
+        // No modal — that's fine
+      }
     } catch {
       // Some flows skip this step — fall through to Place order directly
       onProgress('No Continue button found — proceeding to Place order…');
