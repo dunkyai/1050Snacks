@@ -87,12 +87,6 @@ async function scrapeStore(page, store, query) {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(500);
 
-    // Debug: capture what Instacart actually shows
-    const pageTitle = await page.title();
-    const pageUrl = page.url();
-    console.log(`[${store.name}] title="${pageTitle}" url=${pageUrl}`);
-    await page.screenshot({ path: `/tmp/debug-${store.slug}.png`, fullPage: false });
-
     const products = await page.evaluate(() => {
       const selectors = [
         '[data-testid="item-card"]',
