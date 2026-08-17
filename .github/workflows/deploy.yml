@@ -1,0 +1,61 @@
+name: deploy
+
+# Auto-deploys on push to main, or trigger manually from anywhere.
+# Secrets required (repo Settings → Secrets → Actions):
+#   DEPLOY_SSH_KEY  — copy the same value from dunkyai/dunky-hosting repo secrets
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy 1050snacks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "135.181.222.36 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr59jVWvy6FCR7dWVT3OPnNS7EGj77t38eCDnDgkueL" >> ~/.ssh/known_hosts
+
+      - name: Build and deploy on server
+        run: |
+          ssh -i ~/.ssh/id_ed25519 root@135.181.222.36 'bash -s' << 'ENDSSH'
+            set -euo pipefail
+
+            # Clone or update repo
+            if [ -d /opt/1050snacks ]; then
+              echo "Pulling latest..."
+              git -C /opt/1050snacks pull origin main
+            else
+              echo "Cloning repo..."
+              git clone https://github.com/dunkyai/1050Snacks /opt/1050snacks
+            fi
+
+            cd /opt/1050snacks
+
+            # Build image
+            echo "Building Docker image..."
+            docker build -t 1050snacks .
+
+            # Replace container
+            docker stop 1050snacks 2>/dev/null || true
+            docker rm   1050snacks 2>/dev/null || true
+            docker run -d \
+              --name 1050snacks \
+              --restart unless-stopped \
+              -p 3456:3000 \
+              1050snacks
+
+            STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
+            echo "Done — container status: $STATUS"
+          ENDSSH
