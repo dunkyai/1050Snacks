@@ -68,18 +68,25 @@ function pickStoreUrl(storeLinks, storeName) {
 
 async function scrapeStore(page, storeLinks, store, query) {
   try {
-    const rawBase = pickStoreUrl(storeLinks, store.name)
-      || `https://www.instacart.com/store/${store.slug}`;
-    // Strip trailing path segments like /storefront so we can append /search_v3/...
-    const storeBase = rawBase.replace(/\/(storefront|flyer|hub)(\/.*)?$/, '');
-    console.log(`[${store.name}] using base: ${storeBase}`);
+    // Navigate to the store storefront (click path, not search URL directly)
+    const storefrontUrl = pickStoreUrl(storeLinks, store.name)
+      || `https://www.instacart.com/store/${store.slug}/storefront`;
+    console.log(`[${store.name}] going to storefront: ${storefrontUrl}`);
 
-    const url = `${storeBase}/search_v3/${encodeURIComponent(query)}`;
-    console.log(`[${store.name}] searching: ${url}`);
+    await page.goto(storefrontUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: `/tmp/debug-${store.slug}-front.png` });
+    console.log(`[${store.name}] storefront url after nav: ${page.url()}`);
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // Now navigate to the search results within this store
+    const storeBase = page.url().replace(/\/(storefront|search_v3)(\/.*)?$/, '').replace(/\?.*$/, '');
+    const searchUrl = `${storeBase}/search_v3/${encodeURIComponent(query)}`;
+    console.log(`[${store.name}] searching: ${searchUrl}`);
+
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForTimeout(3000);
-    await page.screenshot({ path: `/tmp/debug-${store.slug}.png` });
+    await page.screenshot({ path: `/tmp/debug-${store.slug}-search.png` });
+    console.log(`[${store.name}] search page title: ${await page.title()}`);
 
     await page.waitForSelector(
       '[data-testid="item-card"], article[class*="ItemCard"], [class*="item-card"], li[class*="item"]',
@@ -141,6 +148,8 @@ async function scrapeStore(page, storeLinks, store, query) {
     }).sort((a, b) => (a.pricePerMeal ?? Infinity) - (b.pricePerMeal ?? Infinity));
 
   } catch (err) {
+    console.error(`[${store.name}] scrape error: ${err.message}`);
+    await page.screenshot({ path: `/tmp/debug-${store.slug}-error.png` }).catch(() => {});
     return [];
   }
 }
