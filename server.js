@@ -33,6 +33,12 @@ db.exec(`
   );
 `);
 
+// On startup, reset any orders/items left mid-flight by a previous crash or redeploy
+db.exec(`
+  UPDATE orders    SET status = 'failed'  WHERE status = 'placing';
+  UPDATE cart_items SET status = 'pending' WHERE status = 'ordering';
+`);
+
 // Prevent two concurrent checkout runs for the same store
 const orderInProgress = new Set();
 
