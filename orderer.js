@@ -124,15 +124,29 @@ async function placeOrder(store, items, onProgress) {
       await shot('no-continue');
     }
 
-    // Step 2: Now wait for the final "Place order" button
+    // Step 2 of 2: "Delivery Tip" modal — click "Confirm & pay" to place the order
+    try {
+      const tipConfirm = page.locator('[role="dialog"] button:has-text("Confirm & pay")');
+      await tipConfirm.waitFor({ state: 'visible', timeout: 10_000 });
+      await shot('tip-modal');
+      onProgress('Confirming tip and placing order…');
+      await tipConfirm.click();
+      await page.waitForTimeout(5000);
+      await shot('placed');
+      const finalUrl = page.url();
+      const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+      onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
+      return { success, url: finalUrl };
+    } catch {
+      // No tip modal — fall through to look for Place order button
+    }
+
+    // Fallback: wait for the final "Place order" button
     const placeBtn = page.locator([
       'button:has-text("Place order")',
       'button:has-text("Place your order")',
-      'button:has-text("Confirm order")',
-      'button:has-text("Submit order")',
+      'button:has-text("Confirm & pay")',
       'button[data-testid*="place"]',
-      'button[data-testid*="submit"]',
-      'button[data-testid*="confirm"]',
     ].join(', ')).first();
 
     await placeBtn.waitFor({ state: 'visible', timeout: 45_000 });
