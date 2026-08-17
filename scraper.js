@@ -87,10 +87,8 @@ async function scrapeStore(page, storeLinks, store, query) {
     await page.screenshot({ path: `/tmp/debug-${store.slug}-search.png` });
     console.log(`[${store.name}] search page: ${page.url()} — title: ${await page.title()}`);
 
-    await page.waitForSelector(
-      '[data-testid="item-card"], article[class*="ItemCard"], [class*="item-card"], li[class*="item"]',
-      { timeout: 12_000 }
-    );
+    // Wait for any price to appear — more reliable than guessing card class names
+    await page.waitForSelector('[aria-label*="$"], [class*="price"]', { timeout: 12_000 });
 
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => window.scrollBy(0, 600));
@@ -100,18 +98,27 @@ async function scrapeStore(page, storeLinks, store, query) {
     await page.waitForTimeout(500);
 
     const products = await page.evaluate(() => {
+      // Log data-testid values present on the page for debugging
+      const testIds = [...new Set(Array.from(document.querySelectorAll('[data-testid]')).map(e => e.dataset.testid))];
+      console.log('data-testids on page:', testIds.join(', '));
+
+      // Try card selectors — Instacart uses generated class names so cast a wide net
       const selectors = [
         '[data-testid="item-card"]',
+        '[data-testid="itemgrid-cell"]',
+        '[data-testid="search-result-item"]',
         'article[class*="ItemCard"]',
         'li[class*="item-card"]',
         '[class*="item_card"]',
         'li[class*="ItemBrowser"]',
-        '[data-testid="search-result-item"]',
+        // Fallback: any li containing a price
+        'li:has([aria-label*="$"])',
+        'li:has([class*="price"])',
       ];
       let cards = [];
       for (const sel of selectors) {
-        cards = Array.from(document.querySelectorAll(sel));
-        if (cards.length) break;
+        try { cards = Array.from(document.querySelectorAll(sel)); } catch { cards = []; }
+        if (cards.length > 0) { console.log('Matched selector:', sel, cards.length); break; }
       }
 
       return cards.slice(0, 10).map(card => {
