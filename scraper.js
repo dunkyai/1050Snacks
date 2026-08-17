@@ -271,6 +271,15 @@ async function scrapeInstacart(query, onStoreResult) {
   }
 }
 
+// Individual packs: small per-piece size (≤2 oz) in a multipack, or explicit keywords
+function isIndividualPack(p) {
+  const text = `${p.name} ${p.size || ''}`.toLowerCase();
+  const smallMultipack = /\b(0\.\d+|1|1\.[0-9])\s*oz\b/.test(text) &&
+    /\b(\d+[\s-]count|pack|variety)\b/.test(text);
+  const keywords = /snack\s*pack|individual|single[\s-]serve|fun\s+size|mini\s+bag|on[\s-]the[\s-]go/i.test(text);
+  return smallMultipack || keywords;
+}
+
 async function rankProducts(products) {
   if (products.length <= 3) return products;
 
@@ -307,17 +316,25 @@ async function rankProducts(products) {
     console.warn('[rank] tastiness scoring failed, using price only:', err.message);
   }
 
-  const scored = products.map((p, i) => {
-    const t = tastiness[i] ?? 5;
-    const ppm = p.pricePerMeal ?? p.price ?? max;
-    const priceScore = range > 0 ? 1 + 9 * (max - ppm) / range : 5;
-    return { ...p, _score: t * 0.6 + priceScore * 0.4 };
-  });
+  const scored = products
+    .map((p, i) => {
+      const t = tastiness[i] ?? 5;
+      const ppm = p.pricePerMeal ?? p.price ?? max;
+      const priceScore = range > 0 ? 1 + 9 * (max - ppm) / range : 5;
+      return { ...p, _score: t * 0.6 + priceScore * 0.4 };
+    })
+    .sort((a, b) => b._score - a._score);
 
-  return scored
-    .sort((a, b) => b._score - a._score)
-    .slice(0, 3)
-    .map(({ _score, ...p }) => p);
+  const top3 = scored.slice(0, 3);
+
+  // Guarantee at least 1 individual-packet option in the top 3
+  const hasIndividual = top3.some(isIndividualPack);
+  if (!hasIndividual) {
+    const bestIndividual = scored.slice(3).find(isIndividualPack);
+    if (bestIndividual) top3[2] = bestIndividual; // replace lowest-ranked slot
+  }
+
+  return top3.map(({ _score, ...p }) => p);
 }
 
 module.exports = { scrapeInstacart, rankProducts };

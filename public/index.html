@@ -314,7 +314,8 @@
       const panel = document.getElementById(`cart-${store}`);
       const order = data.orders[store];
 
-      if (!info && !order) {
+      const orderDone = order && (order.status === 'placed' || order.status === 'check_screenshots');
+      if (!info && (!order || orderDone)) {
         panel.style.display = 'none';
         continue;
       }
@@ -348,13 +349,14 @@
       placeBtn.classList.toggle('ready', total >= data.threshold);
       placeBtn.disabled = isActive || total === 0;
 
-      // Show latest order log line if ordering
-      if (order) {
+      // Show status only while placing or on failure — clear once done
+      if (order && order.status === 'placing') {
         const log = order.log ? JSON.parse(order.log) : [];
-        const lastLine = log[log.length - 1] || '';
-        const isSuccess = order.status === 'placed';
-        const isError = order.status === 'failed';
-        setCartStatus(store, lastLine, isSuccess ? 'success' : isError ? 'error' : '');
+        setCartStatus(store, log[log.length - 1] || 'Placing order…', '');
+      } else if (order && order.status === 'failed') {
+        setCartStatus(store, 'Order failed — items returned to cart', 'error');
+      } else {
+        setCartStatus(store, '', '');
       }
     }
 
