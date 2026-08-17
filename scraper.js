@@ -166,16 +166,21 @@ async function injectSessionCookies(context) {
   }
 
   const exported = JSON.parse(raw);
+
+  // Cookie-Editor sameSite values differ from Playwright's expected values
+  const sameSiteMap = { strict: 'Strict', lax: 'Lax', no_restriction: 'None', none: 'None' };
+
   const cookies = exported
     .map(c => ({
       name: c.name,
       value: c.value,
-      domain: c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+      // hostOnly cookies must not have a leading dot
+      domain: c.hostOnly ? c.domain.replace(/^\./, '') : (c.domain.startsWith('.') ? c.domain : `.${c.domain}`),
       path: c.path || '/',
-      expires: c.expirationDate ?? -1,
+      expires: c.expirationDate ? Math.floor(c.expirationDate) : -1,
       httpOnly: c.httpOnly ?? false,
       secure: c.secure ?? false,
-      sameSite: ['Strict', 'Lax', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax',
+      sameSite: sameSiteMap[(c.sameSite || '').toLowerCase()] ?? 'Lax',
     }))
     .filter(c => c.name && c.value);
 
