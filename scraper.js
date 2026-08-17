@@ -68,8 +68,10 @@ function pickStoreUrl(storeLinks, storeName) {
 
 async function scrapeStore(page, storeLinks, store, query) {
   try {
-    const storeBase = pickStoreUrl(storeLinks, store.name)
+    const rawBase = pickStoreUrl(storeLinks, store.name)
       || `https://www.instacart.com/store/${store.slug}`;
+    // Strip trailing path segments like /storefront so we can append /search_v3/...
+    const storeBase = rawBase.replace(/\/(storefront|flyer|hub)(\/.*)?$/, '');
     console.log(`[${store.name}] using base: ${storeBase}`);
 
     const url = `${storeBase}/search_v3/${encodeURIComponent(query)}`;
