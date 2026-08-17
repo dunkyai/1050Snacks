@@ -88,29 +88,25 @@ async function placeOrder(store, items, onProgress) {
     await page.waitForTimeout(4000);
     await shot('checkout2');
 
-    onProgress('On checkout page…');
+    onProgress('On checkout page — waiting for it to load…');
 
-    // Delivery time is pre-selected from account settings — skip time picker.
-    // If a time picker does appear, pick the first available slot.
-    try {
-      const slot = page.locator('button[class*="timeslot" i], [data-testid*="timeslot"]').first();
-      if (await slot.isVisible({ timeout: 2000 })) {
-        await slot.click();
-        await page.waitForTimeout(1000);
-        onProgress('Selected delivery window');
-      }
-    } catch { /* already pre-selected */ }
-
-    await shot('before-place');
-
-    // Place order
-    onProgress('Placing order…');
+    // Checkout is JS-heavy; wait for any primary action button to appear
     const placeBtn = page.locator([
       'button:has-text("Place order")',
       'button:has-text("Place your order")',
+      'button:has-text("Confirm order")',
+      'button:has-text("Submit order")',
       'button[data-testid*="place"]',
+      'button[data-testid*="submit"]',
+      'button[data-testid*="confirm"]',
     ].join(', ')).first();
-    await placeBtn.waitFor({ state: 'visible', timeout: 15_000 });
+
+    await placeBtn.waitFor({ state: 'visible', timeout: 45_000 });
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(1000);
+    await shot('before-place');
+
+    onProgress('Placing order…');
     await placeBtn.click();
     await page.waitForTimeout(5000);
     await shot('placed');
