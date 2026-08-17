@@ -23,7 +23,7 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           echo "135.181.222.36 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr59jVWvy6FCR7dWVT3OPnNS7EGj77t38eCDnDgkueL" >> ~/.ssh/known_hosts
 
