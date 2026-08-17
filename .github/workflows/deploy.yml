@@ -58,4 +58,15 @@ jobs:
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
             echo "Done — container status: $STATUS"
+
+            # Add snacks.dunky.ai to Caddy if not already present
+            CADDYFILE="/opt/agentpost/Caddyfile"
+            if ! grep -q "snacks.dunky.ai" "$CADDYFILE"; then
+              echo "Adding snacks.dunky.ai to Caddy..."
+              sed -i '/# Dunky Mail/i # 1050 Snack Finder\nsnacks.dunky.ai {\n    tls {\n        dns cloudflare {env.CLOUDFLARE_API_TOKEN}\n    }\n    reverse_proxy localhost:3456\n}\n' "$CADDYFILE"
+              /opt/agentpost/caddy/rebuild-config.sh --reload
+              echo "Caddy reloaded"
+            else
+              echo "Caddy already configured for snacks.dunky.ai"
+            fi
           ENDSSH
