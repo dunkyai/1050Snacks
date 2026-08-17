@@ -39,6 +39,8 @@ function parseServings(title, size) {
 async function setDeliveryAddress(page) {
   await page.goto('https://www.instacart.com', { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForTimeout(2500);
+  await page.screenshot({ path: '/tmp/debug-homepage.png' });
+  console.log('Homepage loaded, URL:', page.url());
 
   const addressInput = page.locator([
     'input[placeholder*="ddress" i]',
@@ -56,7 +58,6 @@ async function setDeliveryAddress(page) {
   ).first();
   await suggestion.click({ timeout: 8000 });
   await page.waitForTimeout(3000);
-
   console.log('Address set, current URL:', page.url());
 }
 
@@ -182,7 +183,9 @@ async function scrapeInstacart(query, onStoreResult) {
   const page = await context.newPage();
 
   try {
-    await setDeliveryAddress(page);
+    await setDeliveryAddress(page).catch(err => {
+      console.warn('Address setting failed (will use slug URLs):', err.message);
+    });
 
     for (const store of STORES) {
       const products = await scrapeStore(page, store, query);
