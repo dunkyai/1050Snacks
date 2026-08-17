@@ -78,15 +78,14 @@ async function scrapeStore(page, storeLinks, store, query) {
     await page.screenshot({ path: `/tmp/debug-${store.slug}-front.png` });
     console.log(`[${store.name}] storefront url after nav: ${page.url()}`);
 
-    // Now navigate to the search results within this store
-    const storeBase = page.url().replace(/\/(storefront|search_v3)(\/.*)?$/, '').replace(/\?.*$/, '');
-    const searchUrl = `${storeBase}/search_v3/${encodeURIComponent(query)}`;
-    console.log(`[${store.name}] searching: ${searchUrl}`);
-
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // Use the search box on the storefront — avoids direct /search_v3/ URL which 404s without a session
+    const searchInput = page.locator('input[placeholder*="Search" i], input[aria-label*="Search" i]').first();
+    await searchInput.click({ timeout: 8000 });
+    await searchInput.fill(query);
+    await page.keyboard.press('Enter');
     await page.waitForTimeout(3000);
     await page.screenshot({ path: `/tmp/debug-${store.slug}-search.png` });
-    console.log(`[${store.name}] search page title: ${await page.title()}`);
+    console.log(`[${store.name}] search page: ${page.url()} — title: ${await page.title()}`);
 
     await page.waitForSelector(
       '[data-testid="item-card"], article[class*="ItemCard"], [class*="item-card"], li[class*="item"]',
