@@ -125,17 +125,12 @@ async function scrapeStore(page, storeLinks, store, query) {
         seen.add(card);
 
         const cardText = (card.innerText || '').trim();
-        const lines = cardText.split('\n').map(l => l.trim()).filter(Boolean);
 
-        // Name: first line that looks like a product name — must be long enough
-        // to exclude badges ("Best seller", "New", etc.) and star ratings
-        const name = lines.find(l =>
-          l.length > 15 &&
-          !/^\$/.test(l) &&
-          !/^[★*]/.test(l) &&
-          !/(off|stock|delivery|pickup|Current|Original|Add to|Best seller|sponsored)/i.test(l) &&
-          /[a-zA-Z]{3}/.test(l)
-        ) || null;
+        // Product name is always in an <a> that links to the product detail page.
+        // This is far more reliable than scanning innerText lines for a heuristic match.
+        const productLink = Array.from(card.querySelectorAll('a[href*="/products/"]'))
+          .find(a => a.textContent.trim().length > 5);
+        const name = productLink?.textContent.trim() || null;
 
         if (!name) continue;
         results.push({ name, price, allText: cardText.slice(0, 250) });
