@@ -152,7 +152,16 @@ async function scrapeStore(page, storeLinks, store, query) {
         }
 
         if (!name) continue;
-        results.push({ name, price, allText: cardText.slice(0, 250) });
+
+        // Find a dedicated size element — one whose entire text IS a size string.
+        // This avoids false matches from promo text or nutritional info.
+        const sizeEl = Array.from(card.querySelectorAll('*')).find(el => {
+          if (el.children.length > 0) return false;
+          return /^\d+(\.\d+)?\s*(fl oz|oz|lbs?|lb|kg|g|ct|count|pack|pcs)$/i.test(el.textContent.trim());
+        });
+        const size = sizeEl?.textContent.trim() || '';
+
+        results.push({ name, price, size });
       }
 
       return results.slice(0, 12);
@@ -163,7 +172,8 @@ async function scrapeStore(page, storeLinks, store, query) {
     return products
       .filter(p => p.name && p.price && p.price < 500)
       .map(p => {
-        const size = (p.allText.match(/\d+[\s-]*(oz|lb|ct|count|pack|g)\b/i) || [])[0] || '';
+        // Use the dedicated size element; fall back to parsing the product name itself
+        const size = p.size || (p.name.match(/\d+[\s-]*(fl oz|oz|lb|ct|count|pack|g)\b/i) || [])[0] || '';
         const servings = parseServings(p.name, size);
         return {
           name: p.name,
