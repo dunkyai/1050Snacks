@@ -87,44 +87,64 @@ async function scrapeStore(page, storeLinks, store, query) {
     await page.screenshot({ path: `/tmp/debug-${store.slug}-search.png` });
     console.log(`[${store.name}] search page: ${page.url()} — title: ${await page.title()}`);
 
-    await page.waitForTimeout(4000);
-
-    // Dump HTML structure for selector diagnosis
-    const htmlDump = await page.evaluate(() => {
-      const main = document.querySelector('main, [role="main"], #main-content, .e-main') || document.body;
-      return main.innerHTML.slice(0, 6000);
-    });
-    require('fs').writeFileSync('/tmp/instacart-dump.html', htmlDump);
-    console.log(`[${store.name}] HTML dump written (${htmlDump.length} chars)`);
+    // Scroll to load more products, then wait for them
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.scrollBy(0, 700));
+      await page.waitForTimeout(600);
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(1000);
 
     const products = await page.evaluate(() => {
-      // Walk all text nodes — find any that look like a price, climb to the card container
       const results = [];
       const seen = new Set();
-      document.querySelectorAll('*').forEach(el => {
-        if (el.children.length > 0) return;
-        const txt = el.textContent.trim();
-        if (!/^\$\d/.test(txt)) return;
-        // Climb up to a container that likely wraps the whole product card
-        let card = el;
-        for (let i = 0; i < 6; i++) {
+
+      // Instacart puts "Current price: $X.XX" in accessibility text on each product card.
+      // This reliably identifies the real current price and avoids strikethrough/promo prices.
+      const allEls = Array.from(document.querySelectorAll('*'));
+      const priceEls = allEls.filter(el => {
+        if (el.children.length > 0) return false;
+        const t = el.textContent.trim();
+        return t.startsWith('Current price:') && /\$[\d.]+/.test(t);
+      });
+
+      for (const priceEl of priceEls) {
+        const priceMatch = priceEl.textContent.match(/\$([\d,.]+)/);
+        if (!priceMatch) continue;
+        const price = parseFloat(priceMatch[1].replace(',', ''));
+        if (!price || price > 500) continue;
+
+        // Climb up to a card-level container (has an img + enough text)
+        let card = priceEl;
+        for (let i = 0; i < 10; i++) {
           if (!card.parentElement) break;
           card = card.parentElement;
-          if (card.querySelectorAll('img').length > 0) break;
+          if (card.querySelector('img') && (card.innerText || '').length > 30) break;
         }
-        if (seen.has(card)) return;
+        if (seen.has(card)) continue;
         seen.add(card);
 
-        const price = parseFloat(txt.replace(/[^0-9.]/g, ''));
-        const img = card.querySelector('img');
-        const name = img?.alt || card.querySelector('a')?.textContent?.trim() || null;
-        const allText = card.innerText || '';
-        results.push({ name, price, allText: allText.slice(0, 200) });
-      });
-      return results.slice(0, 15);
+        const cardText = (card.innerText || '').trim();
+        const lines = cardText.split('\n').map(l => l.trim()).filter(Boolean);
+
+        // Name: first line that looks like a product name — must be long enough
+        // to exclude badges ("Best seller", "New", etc.) and star ratings
+        const name = lines.find(l =>
+          l.length > 15 &&
+          !/^\$/.test(l) &&
+          !/^[★*]/.test(l) &&
+          !/(off|stock|delivery|pickup|Current|Original|Add to|Best seller|sponsored)/i.test(l) &&
+          /[a-zA-Z]{3}/.test(l)
+        ) || null;
+
+        if (!name) continue;
+        results.push({ name, price, allText: cardText.slice(0, 250) });
+      }
+
+      return results.slice(0, 12);
     });
 
-    console.log(`[${store.name}] raw extracted:`, JSON.stringify(products.slice(0, 3)));
+    console.log(`[${store.name}] extracted ${products.length} products`);
 
     return products
       .filter(p => p.name && p.price && p.price < 500)
