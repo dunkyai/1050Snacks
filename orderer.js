@@ -105,19 +105,16 @@ async function placeOrder(store, items, onProgress) {
       await page.waitForTimeout(2000);
       await shot('after-continue');
 
-      // Instacart may show a "Mobile number" (or similar) interstitial modal — dismiss it
+      // Instacart may show a "Mobile number" (or similar) interstitial modal.
+      // The phone number is pre-filled — click Continue inside the dialog to proceed.
       try {
-        const modalClose = page.locator([
-          'button[aria-label*="close" i]',
-          'button[aria-label*="dismiss" i]',
-          '[role="dialog"] button:has(svg)',
-          '[role="dialog"] button:first-child',
-        ].join(', ')).first();
-        await modalClose.waitFor({ state: 'visible', timeout: 5000 });
-        await modalClose.click();
-        await page.waitForTimeout(1500);
-        await shot('dismissed-modal');
-        onProgress('Dismissed interstitial modal…');
+        const dialogContinue = page.locator('[role="dialog"] button:has-text("Continue")');
+        await dialogContinue.waitFor({ state: 'visible', timeout: 5000 });
+        await shot('modal-before');
+        onProgress('Confirming phone number in modal…');
+        await dialogContinue.click();
+        await page.waitForTimeout(2000);
+        await shot('modal-after');
       } catch {
         // No modal — that's fine
       }
