@@ -35,13 +35,15 @@ async function placeOrder(store, items, onProgress) {
   const shot = (label) => page.screenshot({ path: `/tmp/order-${ts}-${label}.png` }).catch(() => {});
 
   try {
+    // Bail early if none of the items have a product URL
+    const orderable = items.filter(i => i.product_url);
+    if (!orderable.length) {
+      throw new Error('None of the cart items have a product URL — remove them and re-add from a fresh search');
+    }
+
     // Add each item to cart by navigating to its product page
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (!item.product_url) {
-        onProgress(`Skipping "${item.name}" — no product URL`);
-        continue;
-      }
+    for (let i = 0; i < orderable.length; i++) {
+      const item = orderable[i];
 
       onProgress(`Adding "${item.name}" (${i + 1}/${items.length})…`);
       await page.goto(item.product_url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
