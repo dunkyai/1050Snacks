@@ -262,4 +262,53 @@ async function scrapeInstacart(query, onStoreResult) {
   }
 }
 
-module.exports = { scrapeInstacart };
+async function rankProducts(products) {
+  if (products.length <= 3) return products;
+
+  // Price efficiency: lower cost-per-snack → higher score (1–10)
+  const ppmValues = products.map(p => p.pricePerMeal ?? p.price ?? 0);
+  const min = Math.min(...ppmValues);
+  const max = Math.max(...ppmValues);
+  const range = max - min;
+
+  // Tastiness: single Haiku call for all products at once
+  const tastiness = {};
+  try {
+    const list = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        messages: [{
+          role: 'user',
+          content: `Rate each snack 1-10 for crowd-appeal in a shared office (broad taste, brand recognition, general enjoyability). Return only a JSON array, no extra text: [{"i":1,"s":8}, ...]\n\n${list}`,
+        }],
+      }),
+    });
+    const data = await resp.json();
+    const scores = JSON.parse(data.content[0].text);
+    for (const { i, s } of scores) tastiness[i - 1] = s;
+  } catch (err) {
+    console.warn('[rank] tastiness scoring failed, using price only:', err.message);
+  }
+
+  const scored = products.map((p, i) => {
+    const t = tastiness[i] ?? 5;
+    const ppm = p.pricePerMeal ?? p.price ?? max;
+    const priceScore = range > 0 ? 1 + 9 * (max - ppm) / range : 5;
+    return { ...p, _score: t * 0.6 + priceScore * 0.4 };
+  });
+
+  return scored
+    .sort((a, b) => b._score - a._score)
+    .slice(0, 3)
+    .map(({ _score, ...p }) => p);
+}
+
+module.exports = { scrapeInstacart, rankProducts };

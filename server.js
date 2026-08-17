@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
-const { scrapeInstacart } = require('./scraper');
+const { scrapeInstacart, rankProducts } = require('./scraper');
 const { placeOrder } = require('./orderer');
 
 const app = express();
@@ -191,7 +191,12 @@ app.get('/search', async (req, res) => {
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
   try {
-    await scrapeInstacart(query, (result) => send({ type: 'store', ...result }));
+    const storeResults = [];
+    await scrapeInstacart(query, (result) => storeResults.push(result));
+    for (const result of storeResults) {
+      const ranked = await rankProducts(result.products);
+      send({ type: 'store', store: result.store, products: ranked, ranked: true });
+    }
     send({ type: 'done' });
   } catch (err) {
     send({ type: 'error', message: err.message });

@@ -72,6 +72,7 @@ jobs:
               -e "INSTACART_COOKIES_B64=$IC_COOKIES" \
               -e "SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}" \
               -e "SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}" \
+              -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
