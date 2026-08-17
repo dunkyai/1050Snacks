@@ -3,8 +3,7 @@ const { chromium } = require('playwright');
 const DELIVERY_ADDRESS = '1050 Sansome St, San Francisco, CA 94111';
 
 const STORES = [
-  { name: 'Costco',  slug: 'costco-warehouse' },
-  { name: 'Safeway', slug: 'safeway' },
+  { name: 'Costco', slug: 'costco-warehouse' },
 ];
 
 function parseServings(title, size) {
