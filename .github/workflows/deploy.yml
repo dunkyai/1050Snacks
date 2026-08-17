@@ -58,6 +58,9 @@ jobs:
             IC_COOKIES=$(cat /tmp/ic.b64 | tr -d '\n')
             rm -f /tmp/ic.b64
 
+            # Ensure data directory exists for SQLite cart persistence
+            mkdir -p /opt/1050snacks-data
+
             # Replace container
             docker stop 1050snacks 2>/dev/null || true
             docker rm   1050snacks 2>/dev/null || true
@@ -65,6 +68,7 @@ jobs:
               --name 1050snacks \
               --restart unless-stopped \
               -p 3456:3000 \
+              -v /opt/1050snacks-data:/data \
               -e "INSTACART_COOKIES_B64=$IC_COOKIES" \
               1050snacks
 

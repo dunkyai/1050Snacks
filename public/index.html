@@ -12,159 +12,122 @@
       background: #f5f5f0;
       color: #1a1a1a;
       min-height: 100vh;
-      padding: 40px 20px;
+      padding: 40px 20px 160px;
     }
 
-    header {
-      text-align: center;
-      margin-bottom: 40px;
-    }
-
-    header h1 {
-      font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
-
-    header p {
-      color: #666;
-      margin-top: 6px;
-      font-size: 0.95rem;
-    }
+    header { text-align: center; margin-bottom: 40px; }
+    header h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.5px; }
+    header p { color: #666; margin-top: 6px; font-size: 0.95rem; }
 
     .search-box {
-      display: flex;
-      gap: 10px;
-      max-width: 560px;
-      margin: 0 auto 40px;
+      display: flex; gap: 10px;
+      max-width: 560px; margin: 0 auto 40px;
     }
-
     .search-box input {
-      flex: 1;
-      padding: 14px 18px;
-      font-size: 1rem;
-      border: 2px solid #1a1a1a;
-      border-radius: 8px;
-      outline: none;
-      background: #fff;
-      transition: border-color 0.15s;
+      flex: 1; padding: 14px 18px; font-size: 1rem;
+      border: 2px solid #1a1a1a; border-radius: 8px; outline: none; background: #fff;
     }
-
-    .search-box input:focus {
-      border-color: #4f46e5;
-    }
-
+    .search-box input:focus { border-color: #4f46e5; }
     .search-box button {
-      padding: 14px 24px;
-      font-size: 1rem;
-      font-weight: 600;
-      background: #1a1a1a;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.15s;
-      white-space: nowrap;
+      padding: 14px 24px; font-size: 1rem; font-weight: 600;
+      background: #1a1a1a; color: #fff; border: none; border-radius: 8px;
+      cursor: pointer; white-space: nowrap;
     }
-
     .search-box button:hover { background: #333; }
     .search-box button:disabled { background: #999; cursor: not-allowed; }
 
     .status {
-      text-align: center;
-      color: #666;
-      font-size: 0.9rem;
-      margin-bottom: 24px;
-      min-height: 24px;
+      text-align: center; color: #666; font-size: 0.9rem;
+      margin-bottom: 24px; min-height: 24px;
     }
-
     .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid #ccc;
-      border-top-color: #4f46e5;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid #ccc; border-top-color: #4f46e5;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
     }
-
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .results {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      max-width: 1100px;
-      margin: 0 auto;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+      max-width: 1100px; margin: 0 auto;
     }
-
-    @media (max-width: 680px) {
-      .results { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 680px) { .results { grid-template-columns: 1fr; } }
 
     .store-col h2 {
-      font-size: 1.1rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding-bottom: 12px;
-      border-bottom: 2px solid #1a1a1a;
-      margin-bottom: 16px;
+      font-size: 1.1rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; padding-bottom: 12px;
+      border-bottom: 2px solid #1a1a1a; margin-bottom: 16px;
     }
 
     .product-card {
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 10px;
-      padding: 16px;
-      margin-bottom: 12px;
+      background: #fff; border: 1px solid #e0e0e0;
+      border-radius: 10px; padding: 16px; margin-bottom: 12px;
     }
-
-    .product-name {
-      font-weight: 600;
-      font-size: 0.95rem;
-      line-height: 1.4;
-      margin-bottom: 10px;
-    }
-
-    .product-meta {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      font-size: 0.85rem;
-      color: #555;
-    }
-
-    .product-meta .highlight {
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: #1a1a1a;
-    }
-
+    .product-name { font-weight: 600; font-size: 0.95rem; line-height: 1.4; margin-bottom: 10px; }
+    .product-meta { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: #555; }
+    .product-meta .highlight { font-size: 0.9rem; font-weight: 700; color: #1a1a1a; }
     .badge {
-      display: inline-block;
-      background: #eef2ff;
-      color: #4f46e5;
-      font-size: 0.75rem;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 99px;
-      margin-top: 6px;
+      display: inline-block; background: #eef2ff; color: #4f46e5;
+      font-size: 0.75rem; font-weight: 600; padding: 2px 8px;
+      border-radius: 99px; margin-top: 6px;
     }
 
-    .empty {
-      color: #999;
-      font-size: 0.9rem;
-      padding: 20px 0;
+    .card-footer { margin-top: 12px; display: flex; justify-content: flex-end; }
+    .order-btn {
+      padding: 7px 16px; font-size: 0.82rem; font-weight: 600;
+      background: #1a1a1a; color: #fff; border: none;
+      border-radius: 6px; cursor: pointer;
+    }
+    .order-btn:hover { background: #4f46e5; }
+    .order-btn:disabled { background: #aaa; cursor: default; }
+    .order-btn.added { background: #16a34a; }
+
+    .empty { color: #999; font-size: 0.9rem; padding: 20px 0; }
+    .error-msg { text-align: center; color: #dc2626; font-size: 0.9rem; }
+
+    /* ── Cart Panel ── */
+    #cart-panel {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #fff; border-top: 2px solid #1a1a1a;
+      padding: 14px 24px; z-index: 100;
+      display: flex; gap: 32px; align-items: flex-start;
+      flex-wrap: wrap;
     }
 
-    .error-msg {
-      text-align: center;
-      color: #dc2626;
-      font-size: 0.9rem;
+    .cart-store { flex: 1; min-width: 200px; }
+    .cart-store h3 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+
+    .cart-progress {
+      height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-bottom: 6px;
     }
+    .cart-progress-bar {
+      height: 100%; background: #4f46e5; border-radius: 3px; transition: width 0.3s;
+    }
+    .cart-progress-bar.ready { background: #16a34a; }
+
+    .cart-total { font-size: 0.85rem; color: #555; }
+    .cart-total strong { color: #1a1a1a; }
+
+    .cart-items-list { font-size: 0.78rem; color: #666; margin-top: 4px; max-height: 48px; overflow-y: auto; }
+    .cart-item-row { display: flex; justify-content: space-between; gap: 8px; }
+    .cart-item-remove { cursor: pointer; color: #dc2626; font-size: 0.7rem; flex-shrink: 0; }
+
+    .cart-action { margin-top: 8px; }
+    .place-btn {
+      padding: 7px 18px; font-size: 0.82rem; font-weight: 700;
+      border: none; border-radius: 6px; cursor: pointer;
+      background: #d1d5db; color: #6b7280;
+    }
+    .place-btn.ready { background: #16a34a; color: #fff; }
+    .place-btn.ready:hover { background: #15803d; }
+    .place-btn:disabled { opacity: 0.6; cursor: default; }
+
+    .cart-status { font-size: 0.75rem; color: #4f46e5; margin-top: 4px; min-height: 14px; }
+    .cart-status.error { color: #dc2626; }
+    .cart-status.success { color: #16a34a; }
+
+    .cart-empty-note { color: #aaa; font-size: 0.8rem; align-self: center; }
   </style>
 </head>
 <body>
@@ -182,11 +145,40 @@
 <div class="status" id="status"></div>
 <div class="results" id="results"></div>
 
+<!-- Cart Panel -->
+<div id="cart-panel">
+  <div class="cart-empty-note" id="cart-empty">Cart is empty — search for snacks and click Order</div>
+  <div class="cart-store" id="cart-Costco" style="display:none">
+    <h3>Costco Cart</h3>
+    <div class="cart-progress"><div class="cart-progress-bar" id="bar-Costco"></div></div>
+    <div class="cart-total" id="total-Costco"></div>
+    <div class="cart-items-list" id="items-Costco"></div>
+    <div class="cart-action">
+      <button class="place-btn" id="place-Costco" onclick="placeOrder('Costco')" disabled>Place Costco Order</button>
+      <div class="cart-status" id="status-Costco"></div>
+    </div>
+  </div>
+  <div class="cart-store" id="cart-Safeway" style="display:none">
+    <h3>Safeway Cart</h3>
+    <div class="cart-progress"><div class="cart-progress-bar" id="bar-Safeway"></div></div>
+    <div class="cart-total" id="total-Safeway"></div>
+    <div class="cart-items-list" id="items-Safeway"></div>
+    <div class="cart-action">
+      <button class="place-btn" id="place-Safeway" onclick="placeOrder('Safeway')" disabled>Place Safeway Order</button>
+      <div class="cart-status" id="status-Safeway"></div>
+    </div>
+  </div>
+</div>
+
 <script>
+  const THRESHOLD = 35;
+  let cartPollTimer = null;
+
   document.getElementById('query').addEventListener('keydown', e => {
     if (e.key === 'Enter') search();
   });
 
+  // ── Search ──────────────────────────────────────────────────────────────
   function search() {
     const query = document.getElementById('query').value.trim();
     if (!query) return;
@@ -203,25 +195,21 @@
 
     es.onmessage = (e) => {
       const data = JSON.parse(e.data);
-
       if (data.type === 'store') {
-        status.innerHTML = `<span class="spinner"></span> Got ${data.store} results — loading next store…`;
+        status.innerHTML = `<span class="spinner"></span> Got ${data.store} — loading next store…`;
         results.appendChild(renderStore(data.store, data.products));
       }
-
       if (data.type === 'done') {
         status.textContent = `Done · results for "${query}" · prices may vary from in-store`;
         btn.disabled = false;
         es.close();
       }
-
       if (data.type === 'error') {
         status.innerHTML = `<span class="error-msg">Error: ${data.message}</span>`;
         btn.disabled = false;
         es.close();
       }
     };
-
     es.onerror = () => {
       status.innerHTML = '<span class="error-msg">Connection error — try again</span>';
       btn.disabled = false;
@@ -232,7 +220,6 @@
   function renderStore(name, products) {
     const col = document.createElement('div');
     col.className = 'store-col';
-
     const heading = document.createElement('h2');
     heading.textContent = name;
     col.appendChild(heading);
@@ -240,7 +227,7 @@
     if (!products.length) {
       const empty = document.createElement('p');
       empty.className = 'empty';
-      empty.textContent = 'No results found (store may not be available in this area or nothing matched).';
+      empty.textContent = 'No results found.';
       col.appendChild(empty);
       return col;
     }
@@ -248,11 +235,7 @@
     for (const p of products) {
       const card = document.createElement('div');
       card.className = 'product-card';
-
-      const ppm = p.pricePerMeal != null
-        ? `$${p.pricePerMeal.toFixed(2)} / snack-meal`
-        : 'price per meal unknown';
-
+      const ppm = p.pricePerMeal != null ? `$${p.pricePerMeal.toFixed(2)} / snack-meal` : 'price per meal unknown';
       card.innerHTML = `
         <div class="product-name">${esc(p.name)}</div>
         <div class="product-meta">
@@ -261,16 +244,151 @@
           ${p.servings ? `<span>${p.servings} snack-meals · ${esc(p.servingsBasis)}</span>` : ''}
           <span class="badge">${ppm}</span>
         </div>
+        <div class="card-footer">
+          <button class="order-btn" onclick="addToCart(this, ${JSON.stringify({ store: name, name: p.name, price: p.price, size: p.size || '', productUrl: p.productUrl || '' }).replace(/"/g, '&quot;')})">
+            + Order
+          </button>
+        </div>
       `;
       col.appendChild(card);
     }
-
     return col;
+  }
+
+  // ── Cart actions ─────────────────────────────────────────────────────────
+  async function addToCart(btn, item) {
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    try {
+      const res = await fetch('/cart/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item),
+      });
+      const data = await res.json();
+      btn.textContent = '✓ Added';
+      btn.classList.add('added');
+      if (data.ordering) {
+        setCartStatus(item.store, 'Threshold reached — placing order…', '');
+      }
+      loadCart();
+    } catch (err) {
+      btn.textContent = 'Error';
+      btn.disabled = false;
+    }
+  }
+
+  async function removeFromCart(id, store) {
+    await fetch(`/cart/item/${id}`, { method: 'DELETE' });
+    loadCart();
+  }
+
+  async function placeOrder(store) {
+    const btn = document.getElementById(`place-${store}`);
+    btn.disabled = true;
+    setCartStatus(store, 'Starting order…', '');
+    try {
+      await fetch(`/cart/order/${store}`, { method: 'POST' });
+      pollCartStatus(store);
+    } catch (err) {
+      setCartStatus(store, `Error: ${err.message}`, 'error');
+      btn.disabled = false;
+    }
+  }
+
+  // ── Cart rendering ────────────────────────────────────────────────────────
+  async function loadCart() {
+    try {
+      const res = await fetch('/cart');
+      const data = await res.json();
+      renderCart(data);
+    } catch { /* ignore */ }
+  }
+
+  function renderCart(data) {
+    const stores = ['Costco', 'Safeway'];
+    let anyVisible = false;
+
+    for (const store of stores) {
+      const info = data.stores[store];
+      const panel = document.getElementById(`cart-${store}`);
+      const order = data.orders[store];
+
+      if (!info && !order) {
+        panel.style.display = 'none';
+        continue;
+      }
+
+      panel.style.display = '';
+      anyVisible = true;
+
+      const total = info ? info.total : 0;
+      const pct = Math.min(100, (total / data.threshold) * 100);
+      const bar = document.getElementById(`bar-${store}`);
+      bar.style.width = `${pct}%`;
+      bar.classList.toggle('ready', total >= data.threshold);
+
+      document.getElementById(`total-${store}`).innerHTML =
+        `<strong>$${total.toFixed(2)}</strong> / $${data.threshold} minimum`;
+
+      const listEl = document.getElementById(`items-${store}`);
+      listEl.innerHTML = '';
+      for (const item of (info ? info.items : [])) {
+        const row = document.createElement('div');
+        row.className = 'cart-item-row';
+        row.innerHTML = `<span>${esc(item.name)} — $${item.price.toFixed(2)}</span>
+          <span class="cart-item-remove" onclick="removeFromCart(${item.id},'${store}')">✕</span>`;
+        listEl.appendChild(row);
+      }
+
+      const placeBtn = document.getElementById(`place-${store}`);
+      const isOrdering = order && (order.status === 'placing' || order.status === 'placing');
+      const isActive = data.orders[store]?.status === 'placing';
+
+      placeBtn.classList.toggle('ready', total >= data.threshold);
+      placeBtn.disabled = isActive || total === 0;
+
+      // Show latest order log line if ordering
+      if (order) {
+        const log = order.log ? JSON.parse(order.log) : [];
+        const lastLine = log[log.length - 1] || '';
+        const isSuccess = order.status === 'placed';
+        const isError = order.status === 'failed';
+        setCartStatus(store, lastLine, isSuccess ? 'success' : isError ? 'error' : '');
+      }
+    }
+
+    document.getElementById('cart-empty').style.display = anyVisible ? 'none' : '';
+  }
+
+  function setCartStatus(store, msg, cls) {
+    const el = document.getElementById(`status-${store}`);
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'cart-status' + (cls ? ` ${cls}` : '');
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────────────
+  function pollCartStatus(store) {
+    if (cartPollTimer) clearInterval(cartPollTimer);
+    cartPollTimer = setInterval(async () => {
+      const res = await fetch('/cart');
+      const data = await res.json();
+      renderCart(data);
+      const order = data.orders[store];
+      if (order && order.status !== 'placing') {
+        clearInterval(cartPollTimer);
+        cartPollTimer = null;
+      }
+    }, 3000);
   }
 
   function esc(str) {
     return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // Load cart state on page load
+  loadCart();
 </script>
 </body>
 </html>

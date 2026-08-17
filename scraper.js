@@ -160,8 +160,9 @@ async function scrapeStore(page, storeLinks, store, query) {
           return /^\d+(\.\d+)?\s*(fl oz|oz|lbs?|lb|kg|g|ct|count|pack|pcs)$/i.test(el.textContent.trim());
         });
         const size = sizeEl?.textContent.trim() || '';
+        const productUrl = productLink?.href || null;
 
-        results.push({ name, price, size });
+        results.push({ name, price, size, productUrl });
       }
 
       return results.slice(0, 12);
@@ -179,6 +180,7 @@ async function scrapeStore(page, storeLinks, store, query) {
           name: p.name,
           price: p.price,
           size,
+          productUrl: p.productUrl || null,
           servings: servings ? servings.count : null,
           servingsBasis: servings ? servings.basis : null,
           pricePerMeal: servings ? +(p.price / servings.count).toFixed(2) : null,

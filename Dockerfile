@@ -1,6 +1,7 @@
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y \
+    python3 make g++ \
     ca-certificates \
     fonts-liberation \
     libasound2 \
