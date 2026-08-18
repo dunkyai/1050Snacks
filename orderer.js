@@ -138,7 +138,7 @@ async function placeOrder(store, items, onProgress) {
       const finalUrl = page.url();
       const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
       const total = items.reduce((s, i) => s + i.price, 0);
-      const driveLink = await saveReceipt(placedPath, store, total, items.length).catch(() => null);
+      const driveLink = await saveReceipt(placedPath, store, total, items).catch(() => null);
       onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
       return { success, url: finalUrl, driveLink };
     } catch {
@@ -167,7 +167,7 @@ async function placeOrder(store, items, onProgress) {
     const finalUrl = page.url();
     const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
     const total = items.reduce((s, i) => s + i.price, 0);
-    const driveLink = await saveReceipt(placedPath2, store, total, items.length).catch(() => null);
+    const driveLink = await saveReceipt(placedPath2, store, total, items).catch(() => null);
     onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
     return { success, url: finalUrl, driveLink };
 

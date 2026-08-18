@@ -39,7 +39,7 @@ async function uploadReceipt(screenshotPath, store, total, itemCount) {
   }
 }
 
-async function logSpend(store, total, itemCount, driveLink) {
+async function logSpend(total, items, driveLink) {
   const auth = getAuth();
   const sheetId = process.env.GOOGLE_SHEETS_SPEND_ID;
   if (!auth || !sheetId) {
@@ -48,15 +48,19 @@ async function logSpend(store, total, itemCount, driveLink) {
   }
 
   const sheets = google.sheets({ version: 'v4', auth });
-  const date = new Date().toISOString().slice(0, 10);
+  // MM/DD/YYYY to match existing sheet format
+  const now = new Date();
+  const date = `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}`;
+  const itemList = items.map(i => i.name).join(', ');
 
+  // A: Date | B: Total | C: blank | D: Food & Beverage | E: item list | F: Drive link | G: notes
   try {
     await sheets.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: 'Sheet1!A:E',
+      range: 'Sheet1!A:G',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
-        values: [[date, store, itemCount, total, driveLink || '']],
+        values: [[date, total, '', 'Food & Beverage', itemList, driveLink || '', 'Created with the Snackbot']],
       },
     });
     console.log('[receipts] spend logged to Sheets');
@@ -65,9 +69,9 @@ async function logSpend(store, total, itemCount, driveLink) {
   }
 }
 
-async function saveReceipt(screenshotPath, store, total, itemCount) {
-  const driveLink = await uploadReceipt(screenshotPath, store, total, itemCount);
-  await logSpend(store, total, itemCount, driveLink);
+async function saveReceipt(screenshotPath, store, total, items) {
+  const driveLink = await uploadReceipt(screenshotPath, store, total, items.length);
+  await logSpend(total, items, driveLink);
   return driveLink;
 }
 
