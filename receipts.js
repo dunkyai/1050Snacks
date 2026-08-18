@@ -57,15 +57,18 @@ async function logSpend(total, items, driveLink) {
 
   // A: Date | B: Total | C: blank | D: Food & Beverage | E: item list | F: Drive link | G: notes
   try {
+    // Detect the first sheet's actual name (avoids 'Sheet1' locale mismatch)
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const tabName = meta.data.sheets[0].properties.title;
     await sheets.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: 'Sheet1!A:G',
+      range: `${tabName}!A:G`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [[date, total, '', 'Food & Beverage', itemList, driveLink || '', 'Created with the Snackbot']],
       },
     });
-    console.log('[receipts] spend logged to Sheets');
+    console.log(`[receipts] spend logged to Sheets tab "${tabName}"`);
   } catch (err) {
     console.error('[receipts] Sheets log failed:', err.message);
   }
