@@ -45,6 +45,8 @@ db.exec(`
 
 const orderInProgress = new Set();
 
+const ORDER_APPROVERS = new Set(['U0B7LBRFBS5']);
+
 // ── Slack ─────────────────────────────────────────────────────────────────────
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
@@ -323,6 +325,10 @@ app.post('/slack/interact',
 
     if (action.action_id === 'confirm_order') {
       const store = action.value;
+      if (!ORDER_APPROVERS.has(payload.user?.id)) {
+        await slackPost(responseUrl, { response_type: 'ephemeral', text: `Sorry, only authorized members can place orders.` });
+        return;
+      }
       if (orderInProgress.has(store)) return;
 
       await slackPost(responseUrl, {
