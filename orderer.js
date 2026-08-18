@@ -22,22 +22,22 @@ async function injectSessionCookies(context) {
 }
 
 function extractOrderNumber(url) {
-  // Try common Instacart confirmation URL patterns
-  const m = url.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
+  // /store/orders/<id> or /orders/<id> or ?order_id=
+  const m = url.match(/\/store\/orders\/([A-Za-z0-9_-]+)/) ||
+            url.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
             url.match(/[?&]order[_-]?(?:id|num(?:ber)?)=([A-Za-z0-9_-]+)/i);
   return m ? m[1] : null;
 }
 
-function formatReceiptFilename(url) {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const orderNum = extractOrderNumber(url);
-  const suffix = orderNum ? `Order #${orderNum}` : `order-${now.getTime()}`;
-  return `${dateStr} - ${suffix}.pdf`;
-}
-
 async function saveOrderPdf(page, url, ts) {
   const imgPath = `/tmp/order-${ts}-placed.png`;
+  // If we landed on a confirmation URL, navigate to the order detail page for a clean screenshot
+  const orderId = extractOrderNumber(url);
+  if (orderId) {
+    const orderDetailUrl = `https://www.instacart.com/store/orders/${orderId}`;
+    await page.goto(orderDetailUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+  }
   await page.screenshot({ path: imgPath, fullPage: true }).catch(() => {});
   return imgPath;
 }

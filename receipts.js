@@ -79,7 +79,8 @@ async function saveReceipt(filePath, orderUrl, store, total, items) {
   // Build filename from order URL: "August 18, 2026 - Order #abc123.pdf"
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const orderMatch = orderUrl.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
+  const orderMatch = orderUrl.match(/\/store\/orders\/([A-Za-z0-9_-]+)/) ||
+                     orderUrl.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
                      orderUrl.match(/[?&]order[_-]?(?:id|num(?:ber)?)=([A-Za-z0-9_-]+)/i);
   const orderNum = orderMatch ? orderMatch[1] : now.getTime().toString();
   const fileName = `${dateStr} - Order #${orderNum}.png`;
