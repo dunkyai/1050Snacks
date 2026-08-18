@@ -46,7 +46,13 @@ db.exec(`
 
 const orderInProgress = new Set();
 
-const ORDER_APPROVERS = new Set(['U0B7LBRFBS5']);
+const ORDER_APPROVERS = new Set([
+  'U0B7LBRFBS5', // Elizabeth
+  'U0B7KUWANKU', // Nicole
+  'U0BL9CFA7PY', // Dawn
+  'U0B7JH0GN2W', // Eric
+  'U0B7DAQ5L91', // Shiyan
+]);
 
 // ── Slack ─────────────────────────────────────────────────────────────────────
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
