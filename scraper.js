@@ -67,16 +67,19 @@ function pickStoreUrl(storeLinks, storeName) {
 
 async function scrapeStore(page, store, query) {
   try {
-    // Load storefront first to establish location/session context, then search
+    // Load storefront (establishes location context), then search via the search box
     const storefrontUrl = `https://www.instacart.com/store/${store.slug}/storefront`;
-    console.log(`[${store.name}] loading storefront: ${storefrontUrl}`);
+    console.log(`[${store.name}] loading storefront`);
     await page.goto(storefrontUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
 
-    const searchUrl = `https://www.instacart.com/store/${store.slug}/s?k=${encodeURIComponent(query)}`;
-    console.log(`[${store.name}] searching: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.waitForTimeout(2500);
+    // Type into the search box and submit
+    const searchInput = page.locator('input[type="search"], input[placeholder*="Search" i], input[aria-label*="Search" i]').first();
+    await searchInput.waitFor({ state: 'visible', timeout: 10_000 });
+    await searchInput.click();
+    await searchInput.fill(query);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(3000);
     console.log(`[${store.name}] landed: ${page.url()}`);
 
     // Scroll to load lazy-rendered products
