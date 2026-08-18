@@ -21,6 +21,33 @@ async function injectSessionCookies(context) {
   await context.addCookies(cookies);
 }
 
+function extractOrderNumber(url) {
+  // Try common Instacart confirmation URL patterns
+  const m = url.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
+            url.match(/[?&]order[_-]?(?:id|num(?:ber)?)=([A-Za-z0-9_-]+)/i);
+  return m ? m[1] : null;
+}
+
+function formatReceiptFilename(url) {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const orderNum = extractOrderNumber(url);
+  const suffix = orderNum ? `Order #${orderNum}` : `order-${now.getTime()}`;
+  return `${dateStr} - ${suffix}.pdf`;
+}
+
+async function saveOrderPdf(page, url, ts) {
+  const pdfPath = `/tmp/order-${ts}-placed.pdf`;
+  try {
+    await page.pdf({ path: pdfPath, format: 'A4', printBackground: true });
+  } catch {
+    // pdf() requires non-headless in some Chromium builds — fall back to screenshot
+    await page.screenshot({ path: pdfPath.replace('.pdf', '.png'), fullPage: true }).catch(() => {});
+    return pdfPath.replace('.pdf', '.png');
+  }
+  return pdfPath;
+}
+
 async function placeOrder(store, items, onProgress) {
   const slug = STORE_SLUGS[store] || store.toLowerCase();
   onProgress(`Starting ${store} order — ${items.length} item(s)…`);
@@ -133,12 +160,11 @@ async function placeOrder(store, items, onProgress) {
       onProgress('Confirming tip and placing order…');
       await tipConfirm.click();
       await page.waitForTimeout(5000);
-      const placedPath = `/tmp/order-${ts}-placed.png`;
-      await page.screenshot({ path: placedPath }).catch(() => {});
       const finalUrl = page.url();
       const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+      const pdfPath = await saveOrderPdf(page, finalUrl, ts);
       const total = items.reduce((s, i) => s + i.price, 0);
-      const driveLink = await saveReceipt(placedPath, store, total, items).catch(() => null);
+      const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, items).catch(() => null);
       onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
       return { success, url: finalUrl, driveLink };
     } catch {
@@ -161,13 +187,11 @@ async function placeOrder(store, items, onProgress) {
     onProgress('Placing order…');
     await placeBtn.click();
     await page.waitForTimeout(5000);
-    const placedPath2 = `/tmp/order-${ts}-placed.png`;
-    await page.screenshot({ path: placedPath2 }).catch(() => {});
-
     const finalUrl = page.url();
     const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+    const pdfPath = await saveOrderPdf(page, finalUrl, ts);
     const total = items.reduce((s, i) => s + i.price, 0);
-    const driveLink = await saveReceipt(placedPath2, store, total, items).catch(() => null);
+    const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, items).catch(() => null);
     onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
     return { success, url: finalUrl, driveLink };
 

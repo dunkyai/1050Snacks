@@ -13,7 +13,7 @@ function getAuth() {
   });
 }
 
-async function uploadReceipt(screenshotPath, store, total, itemCount) {
+async function uploadReceipt(filePath, fileName) {
   const auth = getAuth();
   const folderId = process.env.GOOGLE_DRIVE_RECEIPTS_FOLDER_ID;
   if (!auth || !folderId) {
@@ -21,14 +21,14 @@ async function uploadReceipt(screenshotPath, store, total, itemCount) {
     return null;
   }
 
+  const isPdf = filePath.endsWith('.pdf');
+  const mimeType = isPdf ? 'application/pdf' : 'image/png';
   const drive = google.drive({ version: 'v3', auth });
-  const date = new Date().toISOString().slice(0, 10);
-  const fileName = `${store}-order-${date}-$${total.toFixed(2)}.png`;
 
   try {
     const res = await drive.files.create({
       requestBody: { name: fileName, parents: [folderId] },
-      media: { mimeType: 'image/png', body: fs.createReadStream(screenshotPath) },
+      media: { mimeType, body: fs.createReadStream(filePath) },
       fields: 'id,webViewLink',
     });
     console.log(`[receipts] uploaded: ${res.data.webViewLink}`);
@@ -69,8 +69,18 @@ async function logSpend(total, items, driveLink) {
   }
 }
 
-async function saveReceipt(screenshotPath, store, total, items) {
-  const driveLink = await uploadReceipt(screenshotPath, store, total, items.length);
+async function saveReceipt(filePath, orderUrl, store, total, items) {
+  // Build filename from order URL: "August 18, 2026 - Order #abc123.pdf"
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const orderMatch = orderUrl.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
+                     orderUrl.match(/[?&]order[_-]?(?:id|num(?:ber)?)=([A-Za-z0-9_-]+)/i);
+  const orderNum = orderMatch ? orderMatch[1] : now.getTime().toString();
+  const ext = filePath.endsWith('.pdf') ? '.pdf' : '.png';
+  const fileName = `${dateStr} - Order #${orderNum}${ext}`;
+
+  // Upload first, then log with the link
+  const driveLink = await uploadReceipt(filePath, fileName);
   await logSpend(total, items, driveLink);
   return driveLink;
 }
