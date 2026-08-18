@@ -32,6 +32,7 @@ async function uploadReceipt(filePath, fileName) {
       requestBody: { name: fileName, parents: [folderId] },
       media: { mimeType, body: fs.createReadStream(filePath) },
       fields: 'id,webViewLink',
+      supportsAllDrives: true,
     });
     console.log(`[receipts] uploaded: ${res.data.webViewLink}`);
     return res.data.webViewLink;
