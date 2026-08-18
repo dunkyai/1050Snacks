@@ -268,7 +268,8 @@ app.post('/slack/search',
 
       const allBlocks = [];
       for (const { store, products } of storeResults) {
-        allBlocks.push(...searchBlocks(store, products));
+        const ranked = await rankProducts(products);
+        allBlocks.push(...searchBlocks(store, ranked));
         allBlocks.push({ type: 'divider' });
       }
 
