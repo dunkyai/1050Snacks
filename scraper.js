@@ -67,7 +67,12 @@ function pickStoreUrl(storeLinks, storeName) {
 
 async function scrapeStore(page, store, query) {
   try {
-    // Go directly to the search results page — skips homepage + storefront navigation
+    // Load storefront first to establish location/session context, then search
+    const storefrontUrl = `https://www.instacart.com/store/${store.slug}/storefront`;
+    console.log(`[${store.name}] loading storefront: ${storefrontUrl}`);
+    await page.goto(storefrontUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(1500);
+
     const searchUrl = `https://www.instacart.com/store/${store.slug}/s?k=${encodeURIComponent(query)}`;
     console.log(`[${store.name}] searching: ${searchUrl}`);
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
