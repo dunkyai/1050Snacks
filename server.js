@@ -107,7 +107,7 @@ function cartConfirmBlocks(store, total, items) {
       {
         type: 'actions',
         elements: [
-          { type: 'button', text: { type: 'plain_text', text: 'Buy and send this to me now (This can\'t be undone)' }, style: 'primary', action_id: 'confirm_order', value: store },
+          { type: 'button', text: { type: 'plain_text', text: 'Buy & send now (can\'t be undone)' }, style: 'primary', action_id: 'confirm_order', value: store },
           { type: 'button', text: { type: 'plain_text', text: '➕  Keep adding' }, action_id: 'skip_order', value: store },
         ],
       },
@@ -151,11 +151,11 @@ function cartBlocks(byStore, threshold) {
       type: 'actions',
       elements: ready
         ? [
-            { type: 'button', text: { type: 'plain_text', text: 'Buy and send this to me now (This can\'t be undone)' }, style: 'primary', action_id: 'confirm_order', value: store },
+            { type: 'button', text: { type: 'plain_text', text: 'Buy & send now (can\'t be undone)' }, style: 'primary', action_id: 'confirm_order', value: store },
             { type: 'button', text: { type: 'plain_text', text: '➕  Keep adding' }, action_id: 'skip_order', value: store },
           ]
         : [
-            { type: 'button', text: { type: 'plain_text', text: 'Buy and send this to me now' }, style: 'primary', action_id: 'checkout', value: store },
+            { type: 'button', text: { type: 'plain_text', text: 'Buy & send now (can\'t be undone)' }, style: 'primary', action_id: 'checkout', value: store },
           ],
     });
 
