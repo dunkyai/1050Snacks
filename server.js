@@ -8,6 +8,7 @@ const { placeOrder } = require('./orderer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ORDER_THRESHOLD = parseFloat(process.env.ORDER_THRESHOLD || '35');
+const SNACKS_CHANNEL = process.env.SNACKS_CHANNEL || 'C0B733ABPQX';
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const db = new Database(path.join(DATA_DIR, 'snacks.db'));
@@ -428,8 +429,7 @@ app.post('/slack/interact',
       const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(item.store);
 
       if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(item.store)) {
-        // Fall back to channel stored on cart items if interaction didn't carry one
-        const notifyChannel = channelId || pendingItems.find(i => i.slack_channel)?.slack_channel;
+        const notifyChannel = SNACKS_CHANNEL || channelId || pendingItems.find(i => i.slack_channel)?.slack_channel;
         console.log(`[interact] threshold reached $${rounded} in ${item.store}, notifying channel=${notifyChannel}`);
         if (notifyChannel) {
           await slackApi('chat.postMessage', {
