@@ -367,23 +367,11 @@ app.post('/slack/search',
         const rounded = +(total || 0).toFixed(2);
         const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = 'Costco' AND status = 'pending'").all();
 
-        if (rounded >= ORDER_THRESHOLD && !orderInProgress.has('Costco')) {
-          await slackPost(response_url, {
-            response_type: 'in_channel',
-            replace_original: true,
-            text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}`,
-          });
-          await slackApi('chat.postMessage', {
-            channel: channel_id,
-            ...cartConfirmBlocks('Costco', rounded, pendingItems),
-          });
-        } else {
-          await slackPost(response_url, {
-            response_type: 'in_channel',
-            replace_original: true,
-            text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}${pick.size ? ` · ${pick.size}` : ''}\nCart total: $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
-          });
-        }
+        await slackPost(response_url, {
+          response_type: 'in_channel',
+          replace_original: true,
+          text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}${pick.size ? ` · ${pick.size}` : ''}\nCart total: $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}${rounded >= ORDER_THRESHOLD ? ' ✅' : ''}`,
+        });
         return;
       }
 
