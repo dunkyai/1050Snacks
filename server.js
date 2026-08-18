@@ -411,7 +411,11 @@ app.post('/slack/interact',
     res.sendStatus(200); // Ack immediately
 
     if (action.action_id === 'add_to_cart') {
-      const item = JSON.parse(action.value);
+      let item;
+      try { item = JSON.parse(action.value); } catch (e) {
+        console.error('[interact] bad add_to_cart value:', action.value, e.message);
+        return;
+      }
 
       db.prepare('INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)')
         .run(item.store, item.name, item.price, item.size || null, channelId);

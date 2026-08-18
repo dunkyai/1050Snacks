@@ -310,7 +310,8 @@ async function rankProducts(products) {
       }),
     });
     const data = await resp.json();
-    const scores = JSON.parse(data.content[0].text);
+    const raw = data.content[0].text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    const scores = JSON.parse(raw);
     for (const { i, s } of scores) tastiness[i - 1] = s;
   } catch (err) {
     console.warn('[rank] tastiness scoring failed, using price only:', err.message);
