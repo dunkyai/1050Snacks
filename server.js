@@ -76,11 +76,14 @@ async function slackPost(url, body) {
 
 async function slackApi(method, body) {
   if (!SLACK_BOT_TOKEN) return;
-  await fetch(`https://slack.com/api/${method}`, {
+  const res = await fetch(`https://slack.com/api/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
     body: JSON.stringify(body),
   });
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) console.error(`[slack] ${method} failed:`, data.error, JSON.stringify(body).slice(0, 200));
+  return data;
 }
 
 function cartConfirmBlocks(store, total, items) {
@@ -404,10 +407,11 @@ app.post('/slack/interact',
     if (!action) return res.sendStatus(400);
 
     const channelId = payload.channel?.id;
+    const userId = payload.user?.id;
     const responseUrl = payload.response_url;
 
     res.sendStatus(200); // Ack immediately
-    console.log(`[interact] action=${action.action_id} user=${payload.user?.id}`);
+    console.log(`[interact] action=${action.action_id} user=${userId} channel=${channelId}`);
 
     if (action.action_id === 'add_to_cart') {
       let item;
@@ -424,15 +428,29 @@ app.post('/slack/interact',
       const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(item.store);
 
       if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(item.store)) {
-        await slackApi('chat.postMessage', {
-          channel: channelId,
-          ...cartConfirmBlocks(item.store, rounded, pendingItems),
-        });
+        // Fall back to channel stored on cart items if interaction didn't carry one
+        const notifyChannel = channelId || pendingItems.find(i => i.slack_channel)?.slack_channel;
+        console.log(`[interact] threshold reached $${rounded} in ${item.store}, notifying channel=${notifyChannel}`);
+        if (notifyChannel) {
+          await slackApi('chat.postMessage', {
+            channel: notifyChannel,
+            ...cartConfirmBlocks(item.store, rounded, pendingItems),
+          });
+        }
       } else {
-        await slackPost(responseUrl, {
-          response_type: 'ephemeral',
-          text: `✓ Added *${item.name}* — cart total $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
-        });
+        // Use postEphemeral so the original search results message stays intact
+        if (channelId && userId) {
+          await slackApi('chat.postEphemeral', {
+            channel: channelId,
+            user: userId,
+            text: `✓ Added *${item.name}* — cart total $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
+          });
+        } else if (responseUrl) {
+          await slackPost(responseUrl, {
+            response_type: 'ephemeral',
+            text: `✓ Added *${item.name}* — cart total $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
+          });
+        }
       }
     }
 
