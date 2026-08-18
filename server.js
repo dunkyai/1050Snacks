@@ -149,7 +149,7 @@ function cartBlocks(byStore, threshold) {
             { type: 'button', text: { type: 'plain_text', text: '➕  Keep adding' }, action_id: 'skip_order', value: store },
           ]
         : [
-            { type: 'button', text: { type: 'plain_text', text: 'Buy this now! (cannot be undone)' }, style: 'danger', action_id: 'checkout', value: store },
+            { type: 'button', text: { type: 'plain_text', text: 'Buy and send this to me now' }, style: 'primary', action_id: 'checkout', value: store },
           ],
     });
 
