@@ -2,7 +2,9 @@ const { google } = require('googleapis');
 const fs = require('fs');
 
 function getAuth() {
-  const json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  let json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!json && process.env.GOOGLE_SERVICE_ACCOUNT_JSON_B64)
+    json = Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_B64, 'base64').toString('utf8');
   if (!json) return null;
   return new google.auth.GoogleAuth({
     credentials: JSON.parse(json),

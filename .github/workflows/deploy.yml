@@ -27,12 +27,15 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "135.181.222.36 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr59jVWvy6FCR7dWVT3OPnNS7EGj77t38eCDnDgkueL" >> ~/.ssh/known_hosts
 
-      - name: Stage cookies for deploy
+      - name: Stage cookies and service account for deploy
         env:
           INSTACART_COOKIES: ${{ secrets.INSTACART_COOKIES }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           printf '%s' "$INSTACART_COOKIES" | base64 -w0 > /tmp/ic.b64
           scp -i ~/.ssh/id_ed25519 /tmp/ic.b64 root@135.181.222.36:/tmp/ic.b64
+          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" | base64 -w0 > /tmp/sa.b64
+          scp -i ~/.ssh/id_ed25519 /tmp/sa.b64 root@135.181.222.36:/tmp/sa.b64
 
       - name: Build and deploy on server
         run: |
@@ -54,9 +57,10 @@ jobs:
             echo "Building Docker image..."
             docker build -t 1050snacks .
 
-            # Read cookies (base64-encoded to survive shell quoting)
+            # Read secrets (base64-encoded to survive shell quoting)
             IC_COOKIES=$(cat /tmp/ic.b64 | tr -d '\n')
-            rm -f /tmp/ic.b64
+            SA_JSON_B64=$(cat /tmp/sa.b64 | tr -d '\n')
+            rm -f /tmp/ic.b64 /tmp/sa.b64
 
             # Ensure data directory exists for SQLite cart persistence
             mkdir -p /opt/1050snacks-data
@@ -73,7 +77,7 @@ jobs:
               -e "SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}" \
               -e "SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}" \
               -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
-              -e "GOOGLE_SERVICE_ACCOUNT_JSON=${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}" \
+              -e "GOOGLE_SERVICE_ACCOUNT_JSON_B64=$SA_JSON_B64" \
               -e "GOOGLE_DRIVE_RECEIPTS_FOLDER_ID=${{ secrets.GOOGLE_DRIVE_RECEIPTS_FOLDER_ID }}" \
               -e "GOOGLE_SHEETS_SPEND_ID=${{ secrets.GOOGLE_SHEETS_SPEND_ID }}" \
               1050snacks
