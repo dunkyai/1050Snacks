@@ -325,16 +325,16 @@ async function rankProducts(products) {
     })
     .sort((a, b) => b._score - a._score);
 
-  const top3 = scored.slice(0, 3);
+  const top5 = scored.slice(0, 5);
 
-  // Guarantee at least 1 individual-packet option in the top 3
-  const hasIndividual = top3.some(isIndividualPack);
+  // Guarantee at least 1 individual-packet option in the top 5
+  const hasIndividual = top5.some(isIndividualPack);
   if (!hasIndividual) {
-    const bestIndividual = scored.slice(3).find(isIndividualPack);
-    if (bestIndividual) top3[2] = bestIndividual; // replace lowest-ranked slot
+    const bestIndividual = scored.slice(5).find(isIndividualPack);
+    if (bestIndividual) top5[4] = bestIndividual; // replace lowest-ranked slot
   }
 
-  return top3.map(({ _score, ...p }) => p);
+  return top5.map(({ _score, ...p }) => p);
 }
 
 module.exports = { scrapeInstacart, rankProducts };

@@ -107,7 +107,7 @@ function cartConfirmBlocks(store, total, items) {
 
 function searchBlocks(store, products) {
   const blocks = [{ type: 'header', text: { type: 'plain_text', text: `${store} results` } }];
-  for (const p of products.slice(0, 8)) {
+  for (const p of products.slice(0, 5)) {
     const ppm = p.pricePerMeal != null ? ` · *$${p.pricePerMeal.toFixed(2)}/snack*` : '';
     const size = p.size ? ` · ${p.size}` : '';
     blocks.push({
