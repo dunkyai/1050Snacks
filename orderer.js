@@ -37,15 +37,9 @@ function formatReceiptFilename(url) {
 }
 
 async function saveOrderPdf(page, url, ts) {
-  const pdfPath = `/tmp/order-${ts}-placed.pdf`;
-  try {
-    await page.pdf({ path: pdfPath, format: 'A4', printBackground: true });
-  } catch {
-    // pdf() requires non-headless in some Chromium builds — fall back to screenshot
-    await page.screenshot({ path: pdfPath.replace('.pdf', '.png'), fullPage: true }).catch(() => {});
-    return pdfPath.replace('.pdf', '.png');
-  }
-  return pdfPath;
+  const imgPath = `/tmp/order-${ts}-placed.png`;
+  await page.screenshot({ path: imgPath, fullPage: true }).catch(() => {});
+  return imgPath;
 }
 
 async function placeOrder(store, items, onProgress) {

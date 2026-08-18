@@ -82,8 +82,7 @@ async function saveReceipt(filePath, orderUrl, store, total, items) {
   const orderMatch = orderUrl.match(/\/orders?\/([A-Za-z0-9_-]+)/) ||
                      orderUrl.match(/[?&]order[_-]?(?:id|num(?:ber)?)=([A-Za-z0-9_-]+)/i);
   const orderNum = orderMatch ? orderMatch[1] : now.getTime().toString();
-  const ext = filePath.endsWith('.pdf') ? '.pdf' : '.png';
-  const fileName = `${dateStr} - Order #${orderNum}${ext}`;
+  const fileName = `${dateStr} - Order #${orderNum}.png`;
 
   // Upload first, then log with the link
   const driveLink = await uploadReceipt(filePath, fileName);
