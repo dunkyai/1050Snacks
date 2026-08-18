@@ -236,7 +236,7 @@ async function triggerOrder(store) {
     db.prepare('UPDATE orders SET status = ?, log = ? WHERE id = ?').run('failed', JSON.stringify(log), orderId);
     db.prepare(`UPDATE cart_items SET status = 'pending' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
     if (slackChannel) {
-      await slackApi('chat.postMessage', { channel: slackChannel, text: `❌ ${store} order failed: ${err.message}` });
+      await slackApi('chat.postMessage', { channel: slackChannel, text: `❌ ${store} order failed — check docker logs for details.` });
     }
   } finally {
     orderInProgress.delete(store);
@@ -501,7 +501,7 @@ app.post('/slack/interact',
       });
 
       triggerOrder(store).catch(async (err) => {
-        await slackApi('chat.postMessage', { channel: channelId, text: `❌ Order failed: ${err.message}` });
+        await slackApi('chat.postMessage', { channel: channelId, text: `❌ Order failed — check docker logs for details.` });
       });
     }
 

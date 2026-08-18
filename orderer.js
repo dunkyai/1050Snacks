@@ -98,6 +98,16 @@ async function placeOrder(store, items, onProgress) {
       }
     }
 
+    // Dismiss any blocking dialogs (address picker, promos, etc.) before navigating cart
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    // Also try clicking outside any dialog overlay
+    await page.evaluate(() => {
+      const overlay = document.querySelector('[data-dialog-ref]');
+      if (overlay) overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }).catch(() => {});
+    await page.waitForTimeout(500);
+
     // Click the cart button (top-right) to open the cart panel
     onProgress('Opening cart…');
     const cartBtn = page.locator([
@@ -109,10 +119,10 @@ async function placeOrder(store, items, onProgress) {
     await page.waitForTimeout(2000);
     await shot('checkout1');
 
-    // "Go to checkout" button in the cart panel
+    // "Go to checkout" button in the cart panel — use force:true to bypass any lingering overlay
     const goBtn = page.locator('button:has-text("Go to checkout"), a:has-text("Go to checkout")').first();
     await goBtn.waitFor({ state: 'visible', timeout: 8000 });
-    await goBtn.click();
+    await goBtn.click({ force: true });
     await page.waitForTimeout(4000);
     await shot('checkout2');
 
