@@ -334,12 +334,58 @@ app.post('/slack/search',
       return res.json({ response_type: 'ephemeral', text: 'Usage: `/snacks chips` — enter a snack to search for.' });
     }
 
+    const surprise = /\bsurprise\b/i.test(query);
+    const searchQuery = query.replace(/\bsurprise\b/i, '').trim();
+
     // Ack immediately — Slack requires a response within 3s
-    res.json({ response_type: 'in_channel', text: `Searching Costco for *${query}*…` });
+    res.json({
+      response_type: 'in_channel',
+      text: surprise
+        ? `🎲 Finding the best *${searchQuery}* for you…`
+        : `Searching Costco for *${searchQuery}*…`,
+    });
 
     try {
       const storeResults = [];
-      await scrapeInstacart(query, (result) => storeResults.push(result));
+      await scrapeInstacart(searchQuery, (result) => storeResults.push(result));
+
+      if (surprise) {
+        // Pick the #1 ranked item and add it to the cart automatically
+        const products = storeResults[0]?.products || [];
+        const ranked = await rankProducts(products);
+        const pick = ranked[0];
+
+        if (!pick) {
+          await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Couldn't find anything for "${searchQuery}" 😔` });
+          return;
+        }
+
+        db.prepare('INSERT INTO cart_items (store, name, price, size, product_url, slack_channel) VALUES (?, ?, ?, ?, ?, ?)')
+          .run('Costco', pick.name, pick.price, pick.size || null, pick.productUrl || null, channel_id);
+
+        const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = 'Costco' AND status = 'pending'").get();
+        const rounded = +(total || 0).toFixed(2);
+        const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = 'Costco' AND status = 'pending'").all();
+
+        if (rounded >= ORDER_THRESHOLD && !orderInProgress.has('Costco')) {
+          await slackPost(response_url, {
+            response_type: 'in_channel',
+            replace_original: true,
+            text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}`,
+          });
+          await slackApi('chat.postMessage', {
+            channel: channel_id,
+            ...cartConfirmBlocks('Costco', rounded, pendingItems),
+          });
+        } else {
+          await slackPost(response_url, {
+            response_type: 'in_channel',
+            replace_original: true,
+            text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}${pick.size ? ` · ${pick.size}` : ''}\nCart total: $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
+          });
+        }
+        return;
+      }
 
       const allBlocks = [];
       for (const { store, products } of storeResults) {
@@ -352,7 +398,7 @@ app.post('/slack/search',
         response_type: 'in_channel',
         replace_original: true,
         blocks: allBlocks.slice(0, 50),
-        text: `Costco results for "${query}"`,
+        text: `Costco results for "${searchQuery}"`,
       });
     } catch (err) {
       await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Error searching: ${err.message}` });
