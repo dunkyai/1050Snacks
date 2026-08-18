@@ -407,6 +407,7 @@ app.post('/slack/interact',
     const responseUrl = payload.response_url;
 
     res.sendStatus(200); // Ack immediately
+    console.log(`[interact] action=${action.action_id} user=${payload.user?.id}`);
 
     if (action.action_id === 'add_to_cart') {
       let item;

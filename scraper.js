@@ -65,43 +65,22 @@ function pickStoreUrl(storeLinks, storeName) {
   return match ? match.href.split('?')[0] : null;
 }
 
-async function scrapeStore(page, storeLinks, store, query) {
+async function scrapeStore(page, store, query) {
   try {
-    // Navigate to the store storefront (click path, not search URL directly)
-    const storefrontUrl = pickStoreUrl(storeLinks, store.name)
-      || `https://www.instacart.com/store/${store.slug}/storefront`;
-    console.log(`[${store.name}] going to storefront: ${storefrontUrl}`);
+    // Go directly to the search results page — skips homepage + storefront navigation
+    const searchUrl = `https://www.instacart.com/store/${store.slug}/s?k=${encodeURIComponent(query)}`;
+    console.log(`[${store.name}] searching: ${searchUrl}`);
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(2500);
+    console.log(`[${store.name}] landed: ${page.url()}`);
 
-    await page.goto(storefrontUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: `/tmp/debug-${store.slug}-front.png` });
-    console.log(`[${store.name}] storefront url after nav: ${page.url()}`);
-
-    // Dismiss any dialog/overlay that may be blocking the search box
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
-    try {
-      const closeBtn = page.locator('[data-dialog-ref] button, [role="dialog"] button[aria-label*="close" i], [role="dialog"] button:first-child').first();
-      await closeBtn.click({ timeout: 2000 });
-      await page.waitForTimeout(300);
-    } catch {}
-
-    // Use the search box on the storefront — avoids direct /search_v3/ URL which 404s without a session
-    const searchInput = page.locator('input[placeholder*="Search" i], input[aria-label*="Search" i]').first();
-    await searchInput.click({ timeout: 8000 });
-    await searchInput.fill(query);
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(3000);
-    await page.screenshot({ path: `/tmp/debug-${store.slug}-search.png` });
-    console.log(`[${store.name}] search page: ${page.url()} — title: ${await page.title()}`);
-
-    // Scroll to load more products, then wait for them
-    for (let i = 0; i < 4; i++) {
+    // Scroll to load lazy-rendered products
+    for (let i = 0; i < 3; i++) {
       await page.evaluate(() => window.scrollBy(0, 700));
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(400);
     }
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
 
     const products = await page.evaluate(() => {
       const results = [];
@@ -260,10 +239,8 @@ async function scrapeInstacart(query, onStoreResult) {
   const page = await context.newPage();
 
   try {
-    const storeLinks = await loadHomepageAndGetStoreUrls(page);
-
     for (const store of STORES) {
-      const products = await scrapeStore(page, storeLinks, store, query);
+      const products = await scrapeStore(page, store, query);
       onStoreResult({ store: store.name, products });
     }
   } finally {
