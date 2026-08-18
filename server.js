@@ -168,7 +168,7 @@ function getCartByStore() {
 
 function searchBlocks(store, products) {
   const blocks = [{ type: 'header', text: { type: 'plain_text', text: `${store} results` } }];
-  for (const p of products.slice(0, 5)) {
+  for (const p of products.slice(0, 8)) {
     const ppm = p.pricePerMeal != null ? ` · *$${p.pricePerMeal.toFixed(2)}/snack*` : '';
     const size = p.size ? ` · ${p.size}` : '';
     blocks.push({
@@ -257,8 +257,7 @@ app.get('/search', async (req, res) => {
     const storeResults = [];
     await scrapeInstacart(query, (result) => storeResults.push(result));
     for (const result of storeResults) {
-      const ranked = await rankProducts(result.products);
-      send({ type: 'store', store: result.store, products: ranked, ranked: true });
+      send({ type: 'store', store: result.store, products: result.products });
     }
     send({ type: 'done' });
   } catch (err) {
@@ -377,8 +376,7 @@ app.post('/slack/search',
 
       const allBlocks = [];
       for (const { store, products } of storeResults) {
-        const ranked = await rankProducts(products);
-        allBlocks.push(...searchBlocks(store, ranked));
+        allBlocks.push(...searchBlocks(store, products));
         allBlocks.push({ type: 'divider' });
       }
 

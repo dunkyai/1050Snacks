@@ -197,7 +197,7 @@
       const data = JSON.parse(e.data);
       if (data.type === 'store') {
         status.innerHTML = `<span class="spinner"></span> Got ${data.store} — loading next store…`;
-        results.appendChild(renderStore(data.store, data.products, data.ranked));
+        results.appendChild(renderStore(data.store, data.products));
       }
       if (data.type === 'done') {
         status.textContent = `Done · results for "${query}" · prices may vary from in-store`;
@@ -217,11 +217,11 @@
     };
   }
 
-  function renderStore(name, products, ranked) {
+  function renderStore(name, products) {
     const col = document.createElement('div');
     col.className = 'store-col';
     const heading = document.createElement('h2');
-    heading.textContent = ranked ? `${name} — Top 5 picks` : name;
+    heading.textContent = name;
     col.appendChild(heading);
 
     if (!products.length) {
