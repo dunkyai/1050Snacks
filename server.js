@@ -105,6 +105,67 @@ function cartConfirmBlocks(store, total, items) {
   };
 }
 
+function cartBlocks(byStore, threshold) {
+  const blocks = [];
+  const stores = Object.entries(byStore);
+
+  if (!stores.length) {
+    return [{ type: 'section', text: { type: 'mrkdwn', text: 'Cart is empty — use `/snacks [query]` to search.' } }];
+  }
+
+  for (const [store, info] of stores) {
+    const ready = info.total >= threshold;
+    const filled = Math.round((info.total / threshold) * 10);
+    const bar = '█'.repeat(Math.min(filled, 10)) + '░'.repeat(Math.max(0, 10 - filled));
+
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*${store} Cart — $${info.total.toFixed(2)} / $${threshold}*\n${bar}  ${ready ? '✅ Ready to order!' : `$${(threshold - info.total).toFixed(2)} to go`}` },
+    });
+
+    for (const item of info.items) {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `• ${item.name} — $${item.price.toFixed(2)}` },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Remove' },
+          style: 'danger',
+          action_id: 'remove_item',
+          value: String(item.id),
+        },
+      });
+    }
+
+    blocks.push({
+      type: 'actions',
+      elements: ready
+        ? [
+            { type: 'button', text: { type: 'plain_text', text: '✅  Order now' }, style: 'primary', action_id: 'confirm_order', value: store },
+            { type: 'button', text: { type: 'plain_text', text: '➕  Keep adding' }, action_id: 'skip_order', value: store },
+          ]
+        : [
+            { type: 'button', text: { type: 'plain_text', text: '🛒  Checkout anyway' }, action_id: 'checkout', value: store },
+          ],
+    });
+
+    blocks.push({ type: 'divider' });
+  }
+
+  return blocks;
+}
+
+function getCartByStore() {
+  const items = db.prepare("SELECT * FROM cart_items WHERE status IN ('pending','ordering') ORDER BY added_at").all();
+  const byStore = {};
+  for (const item of items) {
+    if (!byStore[item.store]) byStore[item.store] = { items: [], total: 0 };
+    byStore[item.store].items.push(item);
+    byStore[item.store].total = +(byStore[item.store].total + item.price).toFixed(2);
+  }
+  return byStore;
+}
+
 function searchBlocks(store, products) {
   const blocks = [{ type: 'header', text: { type: 'plain_text', text: `${store} results` } }];
   for (const p of products.slice(0, 5)) {
@@ -248,6 +309,20 @@ app.post('/cart/order/:store', async (req, res) => {
   res.json({ ok: true, message: `Order started for ${store}` });
 });
 
+// ── Slack slash command: /cart ────────────────────────────────────────────────
+app.post('/slack/cart',
+  express.urlencoded({ extended: true, verify: captureRawBody }),
+  verifySlack,
+  (req, res) => {
+    const byStore = getCartByStore();
+    res.json({
+      response_type: 'ephemeral',
+      text: 'Your cart:',
+      blocks: cartBlocks(byStore, ORDER_THRESHOLD),
+    });
+  }
+);
+
 // ── Slack slash command: /snacks [query] ──────────────────────────────────────
 app.post('/slack/search',
   express.urlencoded({ extended: true, verify: captureRawBody }),
@@ -322,6 +397,31 @@ app.post('/slack/interact',
           text: `✓ Added *${item.name}* — cart total $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}`,
         });
       }
+    }
+
+    if (action.action_id === 'remove_item') {
+      db.prepare("DELETE FROM cart_items WHERE id = ? AND status = 'pending'").run(parseInt(action.value));
+      const byStore = getCartByStore();
+      await slackPost(responseUrl, {
+        response_type: 'ephemeral',
+        replace_original: true,
+        text: 'Your cart:',
+        blocks: cartBlocks(byStore, ORDER_THRESHOLD),
+      });
+      return;
+    }
+
+    if (action.action_id === 'checkout') {
+      const store = action.value;
+      const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(store);
+      const rounded = +(total || 0).toFixed(2);
+      const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(store);
+      await slackPost(responseUrl, {
+        response_type: 'ephemeral',
+        replace_original: true,
+        ...cartConfirmBlocks(store, rounded, pendingItems),
+      });
+      return;
     }
 
     if (action.action_id === 'confirm_order') {
