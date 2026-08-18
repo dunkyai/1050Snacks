@@ -29,15 +29,56 @@ function extractOrderNumber(url) {
   return m ? m[1] : null;
 }
 
+async function dismissPopups(page) {
+  // Press Escape to close any open dialog
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(500);
+
+  // Click any visible close/dismiss buttons inside dialogs or modals
+  const closeSelectors = [
+    '[role="dialog"] button[aria-label*="close" i]',
+    '[role="dialog"] button[aria-label*="dismiss" i]',
+    '[role="dialog"] button:has-text("×")',
+    '[role="dialog"] button:has-text("✕")',
+    'button[data-testid*="close"]',
+    'button[aria-label*="close" i]',
+  ];
+  for (const sel of closeSelectors) {
+    const btn = page.locator(sel).first();
+    const visible = await btn.isVisible().catch(() => false);
+    if (visible) {
+      await btn.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(400);
+    }
+  }
+
+  // Click outside any remaining overlay to dismiss it
+  await page.evaluate(() => {
+    const overlay = document.querySelector('[role="dialog"], [data-dialog-ref], [class*="modal" i], [class*="overlay" i]');
+    if (overlay) overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }).catch(() => {});
+  await page.waitForTimeout(500);
+}
+
 async function saveOrderPdf(page, url, ts) {
   const imgPath = `/tmp/order-${ts}-placed.png`;
-  // If we landed on a confirmation URL, navigate to the order detail page for a clean screenshot
+  // Navigate to the order detail page for a clean screenshot
   const orderId = extractOrderNumber(url);
   if (orderId) {
     const orderDetailUrl = `https://www.instacart.com/store/orders/${orderId}`;
     await page.goto(orderDetailUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(3000);
   }
+  await dismissPopups(page);
+  // Expand collapsed sections (Your items, Receipt)
+  for (const label of ['Your items', 'Receipt']) {
+    const btn = page.locator(`button:has-text("${label}"), [role="button"]:has-text("${label}")`).first();
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click().catch(() => {});
+      await page.waitForTimeout(600);
+    }
+  }
+  await page.waitForTimeout(500);
   await page.screenshot({ path: imgPath, fullPage: true }).catch(() => {});
   return imgPath;
 }
