@@ -222,7 +222,8 @@ async function triggerOrder(store) {
     db.prepare(`UPDATE cart_items SET status = 'ordered' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
     if (slackChannel) {
       const icon = result.success ? '✅' : '⚠️';
-      await slackApi('chat.postMessage', { channel: slackChannel, text: `${icon} ${store} order ${finalStatus}. ${result.url || ''}` });
+      const receiptPart = result.driveLink ? ` | <${result.driveLink}|Receipt>` : '';
+      await slackApi('chat.postMessage', { channel: slackChannel, text: `${icon} ${store} order ${finalStatus}.${receiptPart} ${result.url || ''}` });
     }
   } catch (err) {
     onProgress(`Error: ${err.message}`);

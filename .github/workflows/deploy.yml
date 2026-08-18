@@ -73,6 +73,9 @@ jobs:
               -e "SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}" \
               -e "SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}" \
               -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
+              -e "GOOGLE_SERVICE_ACCOUNT_JSON=${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}" \
+              -e "GOOGLE_DRIVE_RECEIPTS_FOLDER_ID=${{ secrets.GOOGLE_DRIVE_RECEIPTS_FOLDER_ID }}" \
+              -e "GOOGLE_SHEETS_SPEND_ID=${{ secrets.GOOGLE_SHEETS_SPEND_ID }}" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')

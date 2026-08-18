@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
+const { saveReceipt } = require('./receipts');
 
-const STORE_SLUGS = { Costco: 'costco', Safeway: 'safeway' };
+const STORE_SLUGS = { Costco: 'costco', Safeway: 'safeway' }; // slug from /store/<slug>/storefront
 
 async function injectSessionCookies(context) {
   const b64 = process.env.INSTACART_COOKIES_B64;
@@ -132,11 +133,14 @@ async function placeOrder(store, items, onProgress) {
       onProgress('Confirming tip and placing order…');
       await tipConfirm.click();
       await page.waitForTimeout(5000);
-      await shot('placed');
+      const placedPath = `/tmp/order-${ts}-placed.png`;
+      await page.screenshot({ path: placedPath }).catch(() => {});
       const finalUrl = page.url();
       const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+      const total = items.reduce((s, i) => s + i.price, 0);
+      const driveLink = await saveReceipt(placedPath, store, total, items.length).catch(() => null);
       onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
-      return { success, url: finalUrl };
+      return { success, url: finalUrl, driveLink };
     } catch {
       // No tip modal — fall through to look for Place order button
     }
@@ -157,12 +161,15 @@ async function placeOrder(store, items, onProgress) {
     onProgress('Placing order…');
     await placeBtn.click();
     await page.waitForTimeout(5000);
-    await shot('placed');
+    const placedPath2 = `/tmp/order-${ts}-placed.png`;
+    await page.screenshot({ path: placedPath2 }).catch(() => {});
 
     const finalUrl = page.url();
     const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+    const total = items.reduce((s, i) => s + i.price, 0);
+    const driveLink = await saveReceipt(placedPath2, store, total, items.length).catch(() => null);
     onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
-    return { success, url: finalUrl };
+    return { success, url: finalUrl, driveLink };
 
   } catch (err) {
     await shot('error');

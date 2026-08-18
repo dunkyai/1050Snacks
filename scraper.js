@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const DELIVERY_ADDRESS = '1050 Sansome St, San Francisco, CA 94111';
 
 const STORES = [
-  { name: 'Costco', slug: 'costco-warehouse' },
+  { name: 'Costco', slug: 'costco' },
 ];
 
 function parseServings(title, size) {
@@ -67,19 +67,15 @@ function pickStoreUrl(storeLinks, storeName) {
 
 async function scrapeStore(page, store, query) {
   try {
-    // Load storefront (establishes location context), then search via the search box
-    const storefrontUrl = `https://www.instacart.com/store/${store.slug}/storefront`;
-    console.log(`[${store.name}] loading storefront`);
-    await page.goto(storefrontUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // Load homepage first to establish session/location context
+    await page.goto('https://www.instacart.com', { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForTimeout(2000);
 
-    // Type into the search box and submit
-    const searchInput = page.locator('input[type="search"], input[placeholder*="Search" i], input[aria-label*="Search" i]').first();
-    await searchInput.waitFor({ state: 'visible', timeout: 10_000 });
-    await searchInput.click();
-    await searchInput.fill(query);
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(3000);
+    // Navigate directly to store-scoped search results
+    const searchUrl = `https://www.instacart.com/store/${store.slug}/s?k=${encodeURIComponent(query)}`;
+    console.log(`[${store.name}] searching: ${searchUrl}`);
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(2500);
     console.log(`[${store.name}] landed: ${page.url()}`);
 
     // Scroll to load lazy-rendered products
