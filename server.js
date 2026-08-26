@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { scrapeInstacart, rankProducts } = require('./scraper');
 const { placeOrder } = require('./orderer');
+const SWITCHBOT_ITEMS = require('./switchbot-items');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,6 +58,7 @@ const ORDER_APPROVERS = new Set([
 // ── Slack ─────────────────────────────────────────────────────────────────────
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+const SWITCHBOT_WEBHOOK_TOKEN = process.env.SWITCHBOT_WEBHOOK_TOKEN;
 
 function verifySlack(req, res, next) {
   if (!SLACK_SIGNING_SECRET) return next(); // skip in dev
@@ -514,5 +516,82 @@ app.post('/slack/interact',
     }
   }
 );
+
+// ── SwitchBot webhook ─────────────────────────────────────────────────────────
+// Register this URL in the SwitchBot app: Profile → Preferences → Webhooks.
+// URL format: https://<host>/webhook/switchbot?token=SWITCHBOT_WEBHOOK_TOKEN
+app.post('/webhook/switchbot', async (req, res) => {
+  if (SWITCHBOT_WEBHOOK_TOKEN && req.query.token !== SWITCHBOT_WEBHOOK_TOKEN) {
+    return res.sendStatus(403);
+  }
+
+  const { eventType, context } = req.body || {};
+  if (eventType !== 'changeReport' || context?.power !== 'on') {
+    return res.sendStatus(200); // ignore release events and other event types
+  }
+
+  const mac = (context.deviceMacAddress || '').toUpperCase();
+  const itemConfig = SWITCHBOT_ITEMS[mac] || SWITCHBOT_ITEMS[context.deviceMacAddress];
+
+  if (!itemConfig) {
+    console.log(`[switchbot] unknown device: ${mac}`);
+    await slackApi('chat.postMessage', {
+      channel: SNACKS_CHANNEL,
+      text: `⚠️ SwitchBot button pressed but device MAC \`${mac}\` isn't configured in \`switchbot-items.js\`.`,
+    });
+    return res.sendStatus(200);
+  }
+
+  console.log(`[switchbot] ${itemConfig.emoji} ${itemConfig.label} button pressed (${mac})`);
+
+  const row = db.prepare(
+    'INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)'
+  ).run(itemConfig.store, itemConfig.name, itemConfig.price, itemConfig.size || null, SNACKS_CHANNEL);
+
+  const itemId = row.lastInsertRowid;
+  const { total } = db.prepare(
+    "SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'"
+  ).get(itemConfig.store);
+  const rounded = +(total || 0).toFixed(2);
+  const pendingItems = db.prepare(
+    "SELECT * FROM cart_items WHERE store = ? AND status = 'pending'"
+  ).all(itemConfig.store);
+
+  const barFilled = Math.round((rounded / ORDER_THRESHOLD) * 10);
+  const bar = '█'.repeat(Math.min(barFilled, 10)) + '░'.repeat(Math.max(0, 10 - barFilled));
+  const toGo = rounded >= ORDER_THRESHOLD
+    ? '✅ Ready to order!'
+    : `$${(ORDER_THRESHOLD - rounded).toFixed(2)} to go`;
+
+  await slackApi('chat.postMessage', {
+    channel: SNACKS_CHANNEL,
+    text: `${itemConfig.emoji} ${itemConfig.label} button pressed — added to ${itemConfig.store} cart`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${itemConfig.emoji} *${itemConfig.label} button pressed*\nAdded to ${itemConfig.store} cart: *${itemConfig.name}*${itemConfig.size ? ` · ${itemConfig.size}` : ''} — $${itemConfig.price.toFixed(2)}\n${bar}  $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}  ${toGo}`,
+        },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: '✕ Remove' },
+          style: 'danger',
+          action_id: 'remove_item',
+          value: String(itemId),
+        },
+      },
+    ],
+  });
+
+  if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(itemConfig.store)) {
+    await slackApi('chat.postMessage', {
+      channel: SNACKS_CHANNEL,
+      ...cartConfirmBlocks(itemConfig.store, rounded, pendingItems),
+    });
+  }
+
+  res.sendStatus(200);
+});
 
 app.listen(PORT, () => console.log(`1050Snacks running on port ${PORT}`));
