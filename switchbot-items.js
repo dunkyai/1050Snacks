@@ -10,6 +10,7 @@ module.exports = {
     name: 'Mr. Comfort Organic Peru Coffee',
     price: 22.38,   // approximate — actual Instacart price applies at order time
     size: '',
+    crisisMessage: '☕ *The Hippo Campus is out of coffee! Oh no! Please fix this crisis.*',
   },
   'B0E9FE62D580': {   // "Snacks" Remote
     label: 'Snacks',

@@ -580,7 +580,14 @@ app.post('/webhook/switchbot', async (req, res) => {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${itemConfig.emoji} *${itemConfig.label} button pressed*\nAdded to ${itemConfig.store} cart: *${itemConfig.name}*${itemConfig.size ? ` · ${itemConfig.size}` : ''} — $${itemConfig.price.toFixed(2)}\n${bar}  $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}  ${toGo}`,
+          text: itemConfig.crisisMessage || `${itemConfig.emoji} *${itemConfig.label} button pressed*`,
+        },
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `Added to ${itemConfig.store} cart: *${itemConfig.name}*${itemConfig.size ? ` · ${itemConfig.size}` : ''} — $${itemConfig.price.toFixed(2)}\n${bar}  $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}  ${toGo}`,
         },
         accessory: {
           type: 'button',
