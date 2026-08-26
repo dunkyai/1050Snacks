@@ -117,18 +117,37 @@ async function scrapeStore(page, store, query) {
 
         const cardText = (card.innerText || '').trim();
 
-        // Product name: prefer an <a> that links into the store (not nav/search/storefront),
-        // has real text, and doesn't look like a button ("Add", "View all", etc.)
-        const productLink = Array.from(card.querySelectorAll('a[href]')).find(a => {
-          const href = a.href || '';
-          const text = a.textContent.trim();
-          return href.includes('/store/') &&
-            !/(storefront|search_v3|aisle|category|department|see_all)/i.test(href) &&
-            text.length > 10 &&
-            !/^(Add|View|See|Shop|More)/i.test(text);
-        });
+        // Instacart's current markup wraps the entire product card in a single <a>,
+        // so card.querySelectorAll('a[href]') finds zero inner links.
+        // Fix: check whether the card element itself is the anchor first.
+        let productLink = null;
+        if (card.tagName === 'A' && (card.href || '').includes('/store/')) {
+          productLink = card;
+        }
+        // Fallback: inner <a> links (handles future markup changes or other layouts)
+        if (!productLink) {
+          productLink = Array.from(card.querySelectorAll('a[href]')).find(a => {
+            const href = a.href || '';
+            const text = a.textContent.trim();
+            return href.includes('/store/') &&
+              !/(storefront|search_v3|aisle|category|department|see_all)/i.test(href) &&
+              text.length > 10 &&
+              !/^(Add|View|See|Shop|More)/i.test(text);
+          });
+        }
 
-        let name = productLink?.textContent.trim() || null;
+        // Prefer img[alt] as the product name — it's the clean product title
+        // with no promo badge noise ("Best seller", "Spend $X save $Y", etc.)
+        const productImg = card.querySelector('img[alt]');
+        let name = (productImg?.alt || '').trim() || null;
+        if (name && (name.length < 5 || /^(image|photo|product|item)$/i.test(name))) {
+          name = null; // reject generic alts
+        }
+
+        // Fallback to inner productLink text (only if it's a child <a>, not the card itself)
+        if (!name && productLink && productLink !== card) {
+          name = productLink.textContent.trim() || null;
+        }
 
         // Fallback: first innerText line that looks like a product name
         if (!name) {
@@ -137,7 +156,7 @@ async function scrapeStore(page, store, query) {
             l.length > 15 &&
             !/^\$/.test(l) &&
             !/^[★*]/.test(l) &&
-            !/(off|stock|delivery|pickup|Current|Original|Add to|Best seller|No artificial|sponsored)/i.test(l) &&
+            !/(off|stock|delivery|pickup|Current|Original|Add to|Best seller|No artificial|sponsored|Spend \$|save \$|Store choice|\d+%\s*off)/i.test(l) &&
             /[a-zA-Z]{3}/.test(l)
           ) || null;
         }
