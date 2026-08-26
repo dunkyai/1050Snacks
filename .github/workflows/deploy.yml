@@ -80,6 +80,7 @@ jobs:
               -e "GOOGLE_SERVICE_ACCOUNT_JSON_B64=$SA_JSON_B64" \
               -e "GOOGLE_DRIVE_RECEIPTS_FOLDER_ID=${{ secrets.GOOGLE_DRIVE_RECEIPTS_FOLDER_ID }}" \
               -e "GOOGLE_SHEETS_SPEND_ID=${{ secrets.GOOGLE_SHEETS_SPEND_ID }}" \
+              -e "SWITCHBOT_WEBHOOK_TOKEN=${{ secrets.SWITCHBOT_WEBHOOK_TOKEN }}" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
