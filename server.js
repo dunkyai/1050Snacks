@@ -233,6 +233,12 @@ async function triggerOrder(store) {
       const receiptPart = result.driveLink ? ` | <${result.driveLink}|Receipt>` : '';
       await slackApi('chat.postMessage', { channel: slackChannel, text: `${icon} ${store} order ${finalStatus}.${receiptPart} ${result.url || ''}` });
     }
+    if (result.failedItems?.length) {
+      await slackApi('chat.postMessage', {
+        channel: SNACKS_CHANNEL,
+        text: `⚠️ ${result.failedItems.length} item(s) couldn't be found on Instacart and were skipped:\n${result.failedItems.map(n => `• ${n}`).join('\n')}\nSearch manually with \`/snacks\` to add a substitute.`,
+      });
+    }
   } catch (err) {
     onProgress(`Error: ${err.message}`);
     db.prepare('UPDATE orders SET status = ?, log = ? WHERE id = ?').run('failed', JSON.stringify(log), orderId);

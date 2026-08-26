@@ -7,8 +7,8 @@ module.exports = {
     label: 'Coffee',
     emoji: '☕',
     store: 'Costco',
-    name: 'TBD — confirm coffee brand first',   // update after running /snacks coffee in Slack
-    price: 0,
+    name: 'Mr. Comfort Organic Peru Coffee',
+    price: 22.38,   // approximate — actual Instacart price applies at order time
     size: '',
   },
   'B0E9FE62D580': {   // "Snacks" Remote

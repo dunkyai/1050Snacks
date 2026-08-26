@@ -100,6 +100,8 @@ async function placeOrder(store, items, onProgress) {
   const ts = Date.now();
   const shot = (label) => page.screenshot({ path: `/tmp/order-${ts}-${label}.png` }).catch(() => {});
 
+  const failedItems = [];
+
   try {
     // Add each item by searching for it in the store
     for (let i = 0; i < items.length; i++) {
@@ -129,6 +131,7 @@ async function placeOrder(store, items, onProgress) {
         await shot(`added-${i}`);
       } catch (err) {
         onProgress(`Could not add "${item.name}": ${err.message}`);
+        failedItems.push(item.name);
         await shot(`failed-${i}`);
       }
     }
@@ -211,7 +214,7 @@ async function placeOrder(store, items, onProgress) {
       const total = items.reduce((s, i) => s + i.price, 0);
       const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, items).catch(() => null);
       onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
-      return { success, url: finalUrl, driveLink };
+      return { success, url: finalUrl, driveLink, failedItems };
     } catch {
       // No tip modal — fall through to look for Place order button
     }
@@ -238,7 +241,7 @@ async function placeOrder(store, items, onProgress) {
     const total = items.reduce((s, i) => s + i.price, 0);
     const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, items).catch(() => null);
     onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
-    return { success, url: finalUrl, driveLink };
+    return { success, url: finalUrl, driveLink, failedItems };
 
   } catch (err) {
     await shot('error');
