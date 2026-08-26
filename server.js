@@ -532,9 +532,11 @@ app.post('/webhook/switchbot', async (req, res) => {
   }
 
   const { eventType, context } = req.body || {};
-  if (eventType !== 'changeReport' || context?.power !== 'on') {
-    return res.sendStatus(200); // ignore release events and other event types
-  }
+  console.log(`[switchbot] incoming: ${JSON.stringify(req.body)}`);
+
+  if (eventType !== 'changeReport') return res.sendStatus(200);
+  // For Bot devices ignore the release (power=off). Remotes have no power field — always act.
+  if (context?.power === 'off') return res.sendStatus(200);
 
   // Normalize device identifier — webhook payloads use MAC with dashes (B0-E9-FE-E6-6C-BA),
   // but our config keys use the raw deviceId from the API (B0E9FEE66CBA).
