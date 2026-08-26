@@ -530,19 +530,22 @@ app.post('/webhook/switchbot', async (req, res) => {
     return res.sendStatus(200); // ignore release events and other event types
   }
 
-  const mac = (context.deviceMacAddress || '').toUpperCase();
-  const itemConfig = SWITCHBOT_ITEMS[mac] || SWITCHBOT_ITEMS[context.deviceMacAddress];
+  // Normalize device identifier — webhook payloads use MAC with dashes (B0-E9-FE-E6-6C-BA),
+  // but our config keys use the raw deviceId from the API (B0E9FEE66CBA).
+  const deviceId = (context.deviceMacAddress || context.deviceId || '')
+    .toUpperCase().replace(/[^A-F0-9]/g, '');
+  const itemConfig = SWITCHBOT_ITEMS[deviceId];
 
   if (!itemConfig) {
-    console.log(`[switchbot] unknown device: ${mac}`);
+    console.log(`[switchbot] unknown device: ${deviceId}`);
     await slackApi('chat.postMessage', {
       channel: SNACKS_CHANNEL,
-      text: `⚠️ SwitchBot button pressed but device MAC \`${mac}\` isn't configured in \`switchbot-items.js\`.`,
+      text: `⚠️ SwitchBot button pressed but device \`${deviceId}\` isn't configured in \`switchbot-items.js\`.`,
     });
     return res.sendStatus(200);
   }
 
-  console.log(`[switchbot] ${itemConfig.emoji} ${itemConfig.label} button pressed (${mac})`);
+  console.log(`[switchbot] ${itemConfig.emoji} ${itemConfig.label} button pressed (${deviceId})`);
 
   const row = db.prepare(
     'INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)'
