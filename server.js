@@ -541,7 +541,7 @@ app.post('/webhook/switchbot', async (req, res) => {
 
   // Normalize device identifier — webhook payloads use MAC with dashes (B0-E9-FE-E6-6C-BA),
   // but our config keys use the raw deviceId from the API (B0E9FEE66CBA).
-  const deviceId = (context.deviceMacAddress || context.deviceId || '')
+  const deviceId = (context.deviceMacAddress || context.deviceMac || context.deviceId || '')
     .toUpperCase().replace(/[^A-F0-9]/g, '');
   const itemConfig = SWITCHBOT_ITEMS[deviceId];
 
