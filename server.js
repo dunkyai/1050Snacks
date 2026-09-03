@@ -204,16 +204,41 @@ function searchBlocks(store, products) {
   for (const p of products.slice(0, 8)) {
     const ppm = p.pricePerMeal != null ? ` · *$${p.pricePerMeal.toFixed(2)}/snack*` : '';
     const size = p.size ? ` · ${p.size}` : '';
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
-      accessory: {
-        type: 'button',
-        text: { type: 'plain_text', text: 'Add to Cart' },
-        action_id: 'add_to_cart',
-        value: JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '' }).slice(0, 2000),
-      },
-    });
+    const cartValue = JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '' }).slice(0, 2000);
+
+    if (p.imageUrl) {
+      // Show product thumbnail in the accessory slot; button goes in a separate actions block
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
+        accessory: {
+          type: 'image',
+          image_url: p.imageUrl,
+          alt_text: p.name,
+        },
+      });
+      blocks.push({
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: 'Add to Cart' },
+          action_id: 'add_to_cart',
+          value: cartValue,
+        }],
+      });
+    } else {
+      // Fallback: text-only section with button in the accessory slot
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Add to Cart' },
+          action_id: 'add_to_cart',
+          value: cartValue,
+        },
+      });
+    }
   }
   if (!products.length) {
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `No results found at ${store}.` } });
@@ -399,12 +424,13 @@ app.post('/slack/search',
           return;
         }
 
+        const surpriseStore = storeResults[0]?.store || 'Costco';
         db.prepare('INSERT INTO cart_items (store, name, price, size, product_url, slack_channel) VALUES (?, ?, ?, ?, ?, ?)')
-          .run('Costco', pick.name, pick.price, pick.size || null, pick.productUrl || null, channel_id);
+          .run(surpriseStore, pick.name, pick.price, pick.size || null, pick.productUrl || null, channel_id);
 
-        const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = 'Costco' AND status = 'pending'").get();
+        const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(surpriseStore);
         const rounded = +(total || 0).toFixed(2);
-        const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = 'Costco' AND status = 'pending'").all();
+        const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(surpriseStore);
 
         await slackPost(response_url, {
           response_type: 'in_channel',
