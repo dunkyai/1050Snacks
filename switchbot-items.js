@@ -14,17 +14,16 @@ module.exports = {
     crisisMessage: '☕ *The Hippo Campus is out of coffee! Oh no! Please fix this crisis.*',
   },
 
-  // ── TODO: replace SPARKLING-WATER-PLUG-ID with real device ID ──────────────
-  // After pairing the Plug Mini: node scripts/find-new-devices.js
-  // 'SPARKLING-WATER-PLUG-ID': {
-  //   label: 'Sparkling Water',
-  //   emoji: '💧',
-  //   store: 'Costco',
-  //   name: 'Kirkland Signature Sparkling Water',
-  //   price: 14.99,
-  //   size: '35-pack',
-  //   crisisMessage: '💧 *The Hippo Campus is out of sparkling water! Oh no! Please fix this crisis.*',
-  // },
+  '58E6C584C7FE': {   // "Sparkling Water Button" Plug Mini
+    label: 'Sparkling Water',
+    emoji: '💧',
+    store: 'Costco',
+    // Fallback if unavailable: 'Kirkland Signature Sparkling Water Variety Pack'
+    name: 'LaCroix Dazzling Delicious Sparkling Water Variety Pack',
+    price: 22.99,
+    size: '',
+    crisisMessage: '💧 *The Hippo Campus is out of sparkling water! Oh no! Please fix this crisis.*',
+  },
 
   // ── TODO: replace TOILET-PAPER-PLUG-ID with real device ID ────────────────
   // After pairing the Plug Mini: node scripts/find-new-devices.js
