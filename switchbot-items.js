@@ -3,7 +3,7 @@
 // Add more entries here as new buttons are installed.
 
 module.exports = {
-  'B0E9FEE66CBA': {   // "Coffee" Remote
+  '10003BC17BBA': {   // "Coffee Button" Plug Mini (US)
     label: 'Coffee',
     emoji: '☕',
     store: 'Costco',
