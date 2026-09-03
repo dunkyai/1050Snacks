@@ -577,62 +577,80 @@ app.post('/webhook/switchbot', async (req, res) => {
 
   console.log(`[switchbot] ${itemConfig.emoji} ${itemConfig.label} button pressed (${deviceId})`);
   resetPlug(deviceId).catch(err => console.error('[switchbot] resetPlug failed:', err.message));
+  res.sendStatus(200);
 
-  const row = db.prepare(
-    'INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)'
-  ).run(itemConfig.store, itemConfig.name, itemConfig.price, itemConfig.size || null, SNACKS_CHANNEL);
+  // Process asynchronously — SwitchBot already got its 200
+  (async () => {
+    // Look up live price from Instacart; fall back to config price if scraper fails
+    let livePrice = itemConfig.price;
+    let liveSize = itemConfig.size || null;
+    try {
+      const results = [];
+      await scrapeInstacart(itemConfig.name, (r) => results.push(r));
+      const products = results[0]?.products || [];
+      const ranked = products.length ? await rankProducts(products) : [];
+      if (ranked[0]?.price) {
+        livePrice = ranked[0].price;
+        liveSize = ranked[0].size || liveSize;
+      }
+    } catch (err) {
+      console.error('[switchbot] price lookup failed, using config price:', err.message);
+    }
 
-  const itemId = row.lastInsertRowid;
-  const { total } = db.prepare(
-    "SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'"
-  ).get(itemConfig.store);
-  const rounded = +(total || 0).toFixed(2);
-  const pendingItems = db.prepare(
-    "SELECT * FROM cart_items WHERE store = ? AND status = 'pending'"
-  ).all(itemConfig.store);
+    const row = db.prepare(
+      'INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)'
+    ).run(itemConfig.store, itemConfig.name, livePrice, liveSize, SNACKS_CHANNEL);
 
-  const barFilled = Math.round((rounded / ORDER_THRESHOLD) * 10);
-  const bar = '█'.repeat(Math.min(barFilled, 10)) + '░'.repeat(Math.max(0, 10 - barFilled));
-  const toGo = rounded >= ORDER_THRESHOLD
-    ? '✅ Ready to order!'
-    : `$${(ORDER_THRESHOLD - rounded).toFixed(2)} to go`;
+    const itemId = row.lastInsertRowid;
+    const { total } = db.prepare(
+      "SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'"
+    ).get(itemConfig.store);
+    const rounded = +(total || 0).toFixed(2);
+    const pendingItems = db.prepare(
+      "SELECT * FROM cart_items WHERE store = ? AND status = 'pending'"
+    ).all(itemConfig.store);
 
-  await slackApi('chat.postMessage', {
-    channel: SNACKS_CHANNEL,
-    text: `${itemConfig.emoji} ${itemConfig.label} button pressed — added to ${itemConfig.store} cart`,
-    blocks: [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: itemConfig.crisisMessage || `${itemConfig.emoji} *${itemConfig.label} button pressed*`,
-        },
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `Added to ${itemConfig.store} cart: *${itemConfig.name}*${itemConfig.size ? ` · ${itemConfig.size}` : ''} — $${itemConfig.price.toFixed(2)}\n${bar}  $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}  ${toGo}`,
-        },
-        accessory: {
-          type: 'button',
-          text: { type: 'plain_text', text: '✕ Remove' },
-          style: 'danger',
-          action_id: 'remove_item',
-          value: String(itemId),
-        },
-      },
-    ],
-  });
+    const barFilled = Math.round((rounded / ORDER_THRESHOLD) * 10);
+    const bar = '█'.repeat(Math.min(barFilled, 10)) + '░'.repeat(Math.max(0, 10 - barFilled));
+    const toGo = rounded >= ORDER_THRESHOLD
+      ? '✅ Ready to order!'
+      : `$${(ORDER_THRESHOLD - rounded).toFixed(2)} to go`;
 
-  if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(itemConfig.store)) {
     await slackApi('chat.postMessage', {
       channel: SNACKS_CHANNEL,
-      ...cartConfirmBlocks(itemConfig.store, rounded, pendingItems),
+      text: `${itemConfig.emoji} ${itemConfig.label} button pressed — added to ${itemConfig.store} cart`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: itemConfig.crisisMessage || `${itemConfig.emoji} *${itemConfig.label} button pressed*`,
+          },
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `Added to ${itemConfig.store} cart: *${itemConfig.name}*${liveSize ? ` · ${liveSize}` : ''} — $${livePrice.toFixed(2)}\n${bar}  $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}  ${toGo}`,
+          },
+          accessory: {
+            type: 'button',
+            text: { type: 'plain_text', text: '✕ Remove' },
+            style: 'danger',
+            action_id: 'remove_item',
+            value: String(itemId),
+          },
+        },
+      ],
     });
-  }
 
-  res.sendStatus(200);
+    if (rounded >= ORDER_THRESHOLD && !orderInProgress.has(itemConfig.store)) {
+      await slackApi('chat.postMessage', {
+        channel: SNACKS_CHANNEL,
+        ...cartConfirmBlocks(itemConfig.store, rounded, pendingItems),
+      });
+    }
+  })().catch(err => console.error('[switchbot] async handler failed:', err.message));
 });
 
 app.listen(PORT, () => console.log(`1050Snacks running on port ${PORT}`));
