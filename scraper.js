@@ -173,7 +173,24 @@ async function scrapeStore(page, store, query) {
         const size = sizeEl?.textContent.trim() || '';
         const productUrl = productLink?.href || null;
 
-        results.push({ name, price, size, productUrl });
+        // Capture the image URL — prefer src, fall back to data-src for lazy-loaded images
+        let imageUrl = null;
+        if (productImg) {
+          const src = productImg.src || productImg.getAttribute('src') || '';
+          const dataSrc = productImg.getAttribute('data-src') || '';
+          const srcset = productImg.getAttribute('srcset') || '';
+          if (src && src.startsWith('http')) {
+            imageUrl = src;
+          } else if (dataSrc && dataSrc.startsWith('http')) {
+            imageUrl = dataSrc;
+          } else if (srcset) {
+            // Take the first URL from the srcset (before any space or comma)
+            const firstSrc = srcset.trim().split(/[\s,]+/)[0];
+            if (firstSrc && firstSrc.startsWith('http')) imageUrl = firstSrc;
+          }
+        }
+
+        results.push({ name, price, size, productUrl, imageUrl });
       }
 
       return results.slice(0, 12);
@@ -192,6 +209,7 @@ async function scrapeStore(page, store, query) {
           price: p.price,
           size,
           productUrl: p.productUrl || null,
+          imageUrl: p.imageUrl || null,
           servings: servings ? servings.count : null,
           servingsBasis: servings ? servings.basis : null,
           pricePerMeal: servings ? +(p.price / servings.count).toFixed(2) : null,

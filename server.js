@@ -38,6 +38,8 @@ db.exec(`
 
 // Migrate existing DB if slack_channel column is missing
 try { db.exec('ALTER TABLE cart_items ADD COLUMN slack_channel TEXT'); } catch {}
+// Backfill NULL store values left by pre-multi-store rows
+db.exec("UPDATE cart_items SET store = 'Costco' WHERE store IS NULL OR store = ''");
 
 // On startup, reset any orders/items left mid-flight by a previous crash or redeploy
 db.exec(`
@@ -204,16 +206,41 @@ function searchBlocks(store, products) {
   for (const p of products.slice(0, 8)) {
     const ppm = p.pricePerMeal != null ? ` · *$${p.pricePerMeal.toFixed(2)}/snack*` : '';
     const size = p.size ? ` · ${p.size}` : '';
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
-      accessory: {
-        type: 'button',
-        text: { type: 'plain_text', text: 'Add to Cart' },
-        action_id: 'add_to_cart',
-        value: JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '', productUrl: p.productUrl || null }).slice(0, 2000),
-      },
-    });
+    const cartValue = JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '', productUrl: p.productUrl || null }).slice(0, 2000);
+
+    if (p.imageUrl) {
+      // Show product thumbnail in the accessory slot; button goes in a separate actions block
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
+        accessory: {
+          type: 'image',
+          image_url: p.imageUrl,
+          alt_text: p.name,
+        },
+      });
+      blocks.push({
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: 'Add to Cart' },
+          action_id: 'add_to_cart',
+          value: cartValue,
+        }],
+      });
+    } else {
+      // Fallback: text-only section with button in the accessory slot
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*${p.name}*\n$${p.price.toFixed(2)}${size}${ppm}` },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Add to Cart' },
+          action_id: 'add_to_cart',
+          value: cartValue,
+        },
+      });
+    }
   }
   if (!products.length) {
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `No results found at ${store}.` } });
