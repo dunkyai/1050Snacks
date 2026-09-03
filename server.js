@@ -211,7 +211,7 @@ function searchBlocks(store, products) {
         type: 'button',
         text: { type: 'plain_text', text: 'Add to Cart' },
         action_id: 'add_to_cart',
-        value: JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '' }).slice(0, 2000),
+        value: JSON.stringify({ store, name: p.name, price: p.price, size: p.size || '', productUrl: p.productUrl || null }).slice(0, 2000),
       },
     });
   }
@@ -381,7 +381,7 @@ app.post('/slack/search',
       response_type: 'in_channel',
       text: surprise
         ? `🎲 Finding the best *${searchQuery}* for you…`
-        : `Searching Costco for *${searchQuery}*…`,
+        : `Searching Costco & Safeway for *${searchQuery}*…`,
     });
 
     try {
@@ -399,12 +399,13 @@ app.post('/slack/search',
           return;
         }
 
+        const surpriseStore = storeResults[0]?.store || 'Costco';
         db.prepare('INSERT INTO cart_items (store, name, price, size, product_url, slack_channel) VALUES (?, ?, ?, ?, ?, ?)')
-          .run('Costco', pick.name, pick.price, pick.size || null, pick.productUrl || null, channel_id);
+          .run(surpriseStore, pick.name, pick.price, pick.size || null, pick.productUrl || null, channel_id);
 
-        const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = 'Costco' AND status = 'pending'").get();
+        const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(surpriseStore);
         const rounded = +(total || 0).toFixed(2);
-        const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = 'Costco' AND status = 'pending'").all();
+        const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(surpriseStore);
 
         await slackPost(response_url, {
           response_type: 'in_channel',
@@ -424,7 +425,7 @@ app.post('/slack/search',
         response_type: 'in_channel',
         replace_original: true,
         blocks: allBlocks.slice(0, 50),
-        text: `Costco results for "${searchQuery}"`,
+        text: `Results for "${searchQuery}"`,
       });
     } catch (err) {
       await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Error searching: ${err.message}` });
@@ -457,8 +458,8 @@ app.post('/slack/interact',
         return;
       }
 
-      db.prepare('INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)')
-        .run(item.store, item.name, item.price, item.size || null, channelId);
+      db.prepare('INSERT INTO cart_items (store, name, price, size, product_url, slack_channel) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(item.store, item.name, item.price, item.size || null, item.productUrl || null, channelId);
 
       const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(item.store);
       const rounded = +(total || 0).toFixed(2);

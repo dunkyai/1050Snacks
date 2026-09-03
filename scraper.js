@@ -4,6 +4,7 @@ const DELIVERY_ADDRESS = '1050 Sansome St, San Francisco, CA 94111';
 
 const STORES = [
   { name: 'Costco', slug: 'costco' },
+  { name: 'Safeway', slug: 'safeway' },
 ];
 
 function parseServings(title, size) {
