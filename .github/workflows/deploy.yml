@@ -81,6 +81,8 @@ jobs:
               -e "GOOGLE_DRIVE_RECEIPTS_FOLDER_ID=${{ secrets.GOOGLE_DRIVE_RECEIPTS_FOLDER_ID }}" \
               -e "GOOGLE_SHEETS_SPEND_ID=${{ secrets.GOOGLE_SHEETS_SPEND_ID }}" \
               -e "SWITCHBOT_WEBHOOK_TOKEN=${{ secrets.SWITCHBOT_WEBHOOK_TOKEN }}" \
+              -e "SWITCHBOT_TOKEN=${{ secrets.SWITCHBOT_TOKEN }}" \
+              -e "SWITCHBOT_SECRET=${{ secrets.SWITCHBOT_SECRET }}" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')

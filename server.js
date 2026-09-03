@@ -59,6 +59,27 @@ const ORDER_APPROVERS = new Set([
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 const SWITCHBOT_WEBHOOK_TOKEN = process.env.SWITCHBOT_WEBHOOK_TOKEN;
+const SWITCHBOT_TOKEN = process.env.SWITCHBOT_TOKEN;
+const SWITCHBOT_SECRET = process.env.SWITCHBOT_SECRET;
+
+async function switchbotApi(path, method = 'GET', body) {
+  if (!SWITCHBOT_TOKEN || !SWITCHBOT_SECRET) return;
+  const crypto = require('crypto');
+  const t = Date.now().toString();
+  const nonce = crypto.randomUUID();
+  const sign = crypto.createHmac('sha256', SWITCHBOT_SECRET).update(SWITCHBOT_TOKEN + t + nonce).digest('base64');
+  const res = await fetch(`https://api.switch-bot.com/v1.1${path}`, {
+    method,
+    headers: { 'Authorization': SWITCHBOT_TOKEN, 'sign': sign, 't': t, 'nonce': nonce, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json().catch(() => null);
+}
+
+async function resetPlug(deviceId) {
+  await new Promise(r => setTimeout(r, 2000));
+  await switchbotApi(`/devices/${deviceId}/commands`, 'POST', { commandType: 'command', command: 'turnOff', parameter: 'default' });
+}
 
 function verifySlack(req, res, next) {
   if (!SLACK_SIGNING_SECRET) return next(); // skip in dev
@@ -555,6 +576,7 @@ app.post('/webhook/switchbot', async (req, res) => {
   }
 
   console.log(`[switchbot] ${itemConfig.emoji} ${itemConfig.label} button pressed (${deviceId})`);
+  resetPlug(deviceId).catch(err => console.error('[switchbot] resetPlug failed:', err.message));
 
   const row = db.prepare(
     'INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)'
