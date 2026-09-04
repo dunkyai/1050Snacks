@@ -259,7 +259,7 @@ async function injectSessionCookies(context) {
   console.log(`Injected ${cookies.length} session cookies`);
 }
 
-async function scrapeInstacart(query, onStoreResult) {
+async function scrapeInstacart(query, onStoreResult, storeName = null) {
   const browser = await chromium.launch({
     headless: true,
     args: [
@@ -280,8 +280,12 @@ async function scrapeInstacart(query, onStoreResult) {
   await injectSessionCookies(context);
   const page = await context.newPage();
 
+  const targets = storeName
+    ? STORES.filter(s => s.name === storeName)
+    : STORES;
+
   try {
-    for (const store of STORES) {
+    for (const store of targets) {
       const products = await scrapeStore(page, store, query);
       onStoreResult({ store: store.name, products });
     }
@@ -357,4 +361,4 @@ async function rankProducts(products) {
   return top5.map(({ _score, ...p }) => p);
 }
 
-module.exports = { scrapeInstacart, rankProducts };
+module.exports = { scrapeInstacart, rankProducts, STORES };

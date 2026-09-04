@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
-const { scrapeInstacart, rankProducts } = require('./scraper');
+const { scrapeInstacart, rankProducts, STORES } = require('./scraper');
 const { placeOrder } = require('./orderer');
 const SWITCHBOT_ITEMS = require('./switchbot-items');
 
@@ -403,60 +403,55 @@ app.post('/slack/search',
     const surprise = /\bsurprise\b/i.test(query);
     const searchQuery = query.replace(/\bsurprise\b/i, '').trim();
 
-    // Ack immediately — Slack requires a response within 3s
-    res.json({
-      response_type: 'in_channel',
-      text: surprise
-        ? `🎲 Finding the best *${searchQuery}* for you…`
-        : `Searching Costco & Safeway for *${searchQuery}*…`,
-    });
-
-    try {
-      const storeResults = [];
-      await scrapeInstacart(searchQuery, (result) => storeResults.push(result));
-
-      if (surprise) {
-        // Pick the #1 ranked item and add it to the cart automatically
+    if (surprise) {
+      // Surprise mode: ack and immediately pick from Costco (no store picker needed)
+      res.json({ response_type: 'in_channel', text: `🎲 Finding the best *${searchQuery}* for you…` });
+      try {
+        const storeResults = [];
+        await scrapeInstacart(searchQuery, (result) => storeResults.push(result), 'Costco');
         const products = storeResults[0]?.products || [];
         const ranked = await rankProducts(products);
         const pick = ranked[0];
-
         if (!pick) {
           await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Couldn't find anything for "${searchQuery}" 😔` });
           return;
         }
-
         const surpriseStore = storeResults[0]?.store || 'Costco';
         db.prepare('INSERT INTO cart_items (store, name, price, size, product_url, slack_channel) VALUES (?, ?, ?, ?, ?, ?)')
           .run(surpriseStore, pick.name, pick.price, pick.size || null, pick.productUrl || null, channel_id);
-
         const { total } = db.prepare("SELECT SUM(price) as total FROM cart_items WHERE store = ? AND status = 'pending'").get(surpriseStore);
         const rounded = +(total || 0).toFixed(2);
-        const pendingItems = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(surpriseStore);
-
         await slackPost(response_url, {
           response_type: 'in_channel',
           replace_original: true,
           text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}${pick.size ? ` · ${pick.size}` : ''}\nCart total: $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}${rounded >= ORDER_THRESHOLD ? ' ✅' : ''}`,
         });
-        return;
+      } catch (err) {
+        await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Error: ${err.message}` });
       }
-
-      const allBlocks = [];
-      for (const { store, products } of storeResults) {
-        allBlocks.push(...searchBlocks(store, products));
-        allBlocks.push({ type: 'divider' });
-      }
-
-      await slackPost(response_url, {
-        response_type: 'in_channel',
-        replace_original: true,
-        blocks: allBlocks.slice(0, 50),
-        text: `Results for "${searchQuery}"`,
-      });
-    } catch (err) {
-      await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Error searching: ${err.message}` });
+      return;
     }
+
+    // Normal search: show a store picker first, then search on selection
+    res.json({
+      response_type: 'ephemeral',
+      text: `Which store should I search for *${searchQuery}*?`,
+      blocks: [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: `Which store should I search for *${searchQuery}*?` },
+        },
+        {
+          type: 'actions',
+          elements: STORES.map(s => ({
+            type: 'button',
+            text: { type: 'plain_text', text: s.name },
+            action_id: 'select_store',
+            value: JSON.stringify({ store: s.name, query: searchQuery, channel: channel_id }),
+          })),
+        },
+      ],
+    });
   }
 );
 
@@ -477,6 +472,40 @@ app.post('/slack/interact',
 
     res.sendStatus(200); // Ack immediately
     console.log(`[interact] action=${action.action_id} user=${userId} channel=${channelId}`);
+
+    if (action.action_id === 'select_store') {
+      let val;
+      try { val = JSON.parse(action.value); } catch {
+        await slackPost(responseUrl, { response_type: 'ephemeral', replace_original: true, text: 'Something went wrong. Try again.' });
+        return;
+      }
+      const { store, query: searchQuery, channel: channel_id } = val;
+
+      await slackPost(responseUrl, {
+        response_type: 'ephemeral',
+        replace_original: true,
+        text: `Searching ${store} for *${searchQuery}*…`,
+      });
+
+      try {
+        const storeResults = [];
+        await scrapeInstacart(searchQuery, (result) => storeResults.push(result), store);
+        const { products } = storeResults[0] || { products: [] };
+        if (!products.length) {
+          await slackPost(responseUrl, { response_type: 'ephemeral', replace_original: true, text: `No results found at ${store} for "${searchQuery}".` });
+          return;
+        }
+        await slackPost(responseUrl, {
+          response_type: 'in_channel',
+          replace_original: true,
+          blocks: searchBlocks(store, products).slice(0, 50),
+          text: `${store} results for "${searchQuery}"`,
+        });
+      } catch (err) {
+        await slackPost(responseUrl, { response_type: 'ephemeral', replace_original: true, text: `Error searching ${store}: ${err.message}` });
+      }
+      return;
+    }
 
     if (action.action_id === 'add_to_cart') {
       let item;
