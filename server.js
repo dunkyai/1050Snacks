@@ -87,11 +87,13 @@ function verifySlack(req, res, next) {
   if (!SLACK_SIGNING_SECRET) return next(); // skip in dev
   const ts = req.headers['x-slack-request-timestamp'];
   const sig = req.headers['x-slack-signature'];
+  console.log('[slack-verify] ts:', ts, 'sig:', sig?.slice(0, 20), 'rawBody len:', req.rawBody?.length, 'rawBody:', req.rawBody?.slice(0, 100));
   if (!ts || !sig) return res.sendStatus(403);
-  if (Math.abs(Date.now() / 1000 - ts) > 300) return res.sendStatus(403);
+  if (Math.abs(Date.now() / 1000 - ts) > 300) { console.log('[slack-verify] timestamp expired'); return res.sendStatus(403); }
   const hmac = crypto.createHmac('sha256', SLACK_SIGNING_SECRET)
     .update(`v0:${ts}:${req.rawBody}`)
     .digest('hex');
+  console.log('[slack-verify] computed:', `v0=${hmac}`.slice(0, 20), 'expected:', sig?.slice(0, 20), 'match:', `v0=${hmac}` === sig);
   if (`v0=${hmac}` !== sig) return res.sendStatus(403);
   next();
 }
