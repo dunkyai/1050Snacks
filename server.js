@@ -300,6 +300,14 @@ async function triggerOrder(store) {
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+// Capture raw body for Slack signature verification before any body parser
+// consumes the stream. express.json() below would drain the stream first.
+app.use((req, res, next) => {
+  let data = '';
+  req.setEncoding('utf8');
+  req.on('data', chunk => { data += chunk; });
+  req.on('end', () => { req.rawBody = data; next(); });
+});
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
