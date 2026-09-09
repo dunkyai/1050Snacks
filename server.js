@@ -625,6 +625,7 @@ app.post('/webhook/switchbot', async (req, res) => {
 
   if (!itemConfig) {
     console.log(`[switchbot] unknown device: ${deviceId}`);
+    resetPlug(deviceId).catch(err => console.error('[switchbot] resetPlug (unknown) failed:', err.message));
     await slackApi('chat.postMessage', {
       channel: SNACKS_CHANNEL,
       text: `⚠️ SwitchBot button pressed but device \`${deviceId}\` isn't configured in \`switchbot-items.js\`.`,
