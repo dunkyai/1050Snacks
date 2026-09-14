@@ -452,7 +452,7 @@ app.post('/slack/search',
           elements: STORES.map(s => ({
             type: 'button',
             text: { type: 'plain_text', text: s.name },
-            action_id: 'select_store',
+            action_id: `select_store_${s.slug}`,
             value: JSON.stringify({ store: s.name, query: searchQuery, channel: channel_id }),
           })),
         },
@@ -479,7 +479,7 @@ app.post('/slack/interact',
     res.sendStatus(200); // Ack immediately
     console.log(`[interact] action=${action.action_id} user=${userId} channel=${channelId}`);
 
-    if (action.action_id === 'select_store') {
+    if (action.action_id.startsWith('select_store')) {
       let val;
       try { val = JSON.parse(action.value); } catch {
         await slackPost(responseUrl, { response_type: 'ephemeral', replace_original: true, text: 'Something went wrong. Try again.' });
