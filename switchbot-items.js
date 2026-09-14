@@ -25,15 +25,13 @@ module.exports = {
     crisisMessage: '💧 *The Hippo Campus is out of sparkling water! Oh no! Please fix this crisis.*',
   },
 
-  // ── TODO: replace TOILET-PAPER-PLUG-ID with real device ID ────────────────
-  // After pairing the Plug Mini: node scripts/find-new-devices.js
-  // 'TOILET-PAPER-PLUG-ID': {
-  //   label: 'Toilet Paper',
-  //   emoji: '🧻',
-  //   store: 'Costco',
-  //   name: 'Kirkland Signature Bath Tissue',
-  //   price: 31.99,
-  //   size: '30-count',
-  //   crisisMessage: '🧻 *The Hippo Campus is out of toilet paper! Oh no! Please fix this crisis.*',
-  // },
+  '58E6C5848FB2': {
+    label: 'Toilet Paper',
+    emoji: '🧻',
+    store: 'Costco',
+    name: 'Kirkland Signature Ultra Soft Bath Tissue, 2-Ply, 231 Sheets, 36 Rolls',
+    price: 27.36,
+    size: '36 Rolls',
+    crisisMessage: '🧻 *The Hippo Campus is out of toilet paper! Oh no! Please fix this crisis.*',
+  },
 };
