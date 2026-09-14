@@ -8,9 +8,9 @@ module.exports = {
     label: 'Coffee',
     emoji: '☕',
     store: 'Costco',
-    name: 'Mr. Comfort Organic Peru Coffee',
-    price: 22.38,
-    size: '',
+    name: 'Mayorga Organic Artesano Blend Coffee, Whole Bean, Medium Roast, 2 lbs',
+    price: 17.28,
+    size: '2 lbs',
     crisisMessage: '☕ *The Hippo Campus is out of coffee! Oh no! Please fix this crisis.*',
   },
 
