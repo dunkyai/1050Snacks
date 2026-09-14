@@ -644,7 +644,7 @@ app.post('/webhook/switchbot', async (req, res) => {
     let liveSize = itemConfig.size || null;
     try {
       const results = [];
-      await scrapeInstacart(itemConfig.name, (r) => results.push(r));
+      await scrapeInstacart(itemConfig.name, (r) => results.push(r), itemConfig.store);
       const products = results[0]?.products || [];
       const ranked = products.length ? await rankProducts(products) : [];
       if (ranked[0]?.price) {
