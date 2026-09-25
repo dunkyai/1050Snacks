@@ -217,7 +217,7 @@ async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
   }
 }
 
-async function placeOrder(store, items, onProgress) {
+async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
   const slug = STORE_SLUGS[store] || store.toLowerCase();
   onProgress(`Starting ${store} order — ${items.length} item(s)…`);
 
@@ -291,6 +291,17 @@ async function placeOrder(store, items, onProgress) {
       );
     }
     onProgress(`Cart verified: ${expected.length} product(s) match ✓`);
+
+    // Practice run: everything up to checkout, then stop without paying
+    if (dryRun) {
+      onProgress('Test run — stopping before checkout. Nothing was ordered.');
+      return {
+        dryRun: true,
+        verified: expected.map(g => `${g.qty}× ${g.name}`),
+        failedItems,
+        failedIds,
+      };
+    }
 
     // readCart leaves the cart panel open; reopen it if something closed it
     const goBtn = page.locator('button:has-text("Go to checkout"), a:has-text("Go to checkout")').first();

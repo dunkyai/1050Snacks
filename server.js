@@ -424,11 +424,54 @@ app.post('/cart/order/:store', async (req, res) => {
   res.json({ ok: true, message: `Order started for ${store}` });
 });
 
+// Practice order: add + verify the Instacart cart, stop before checkout.
+// Cart item statuses are left untouched (everything stays pending).
+async function testOrder(store, responseUrl) {
+  const reply = (text) => slackPost(responseUrl, { response_type: 'ephemeral', text }).catch(() => {});
+  if (orderInProgress.has(store)) return reply(`An order or test for ${store} is already running.`);
+  const items = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(store);
+  if (!items.length) return reply(`The ${store} cart is empty — add something with \`/snacks\` first.`);
+
+  orderInProgress.add(store);
+  const onProgress = (msg) => console.log(`[test:${store}] ${msg}`);
+  try {
+    const result = await placeOrder(store, items, onProgress, { dryRun: true });
+    const failed = result.failedItems.length
+      ? `\n\n⚠️ Couldn't add:\n${result.failedItems.map(n => `• ${n}`).join('\n')}`
+      : '';
+    await reply(
+      `🧪 *${store} test passed* — the Instacart cart matches Munchy's cart. Nothing was ordered.\n` +
+      `${result.verified.map(v => `• ${v}`).join('\n')}${failed}\n\n` +
+      `These items are now sitting in the Instacart cart; the next real order will use them without adding them again.`,
+    );
+  } catch (err) {
+    console.error(`[test:${store}]`, err);
+    const details = err.details ? `\n${err.details}` : '';
+    await reply(`🧪 *${store} test stopped* — nothing was ordered.\n${err.message}${details}`);
+  } finally {
+    orderInProgress.delete(store);
+  }
+}
+
 // ── Slack slash command: /cart ────────────────────────────────────────────────
 app.post('/slack/cart',
   express.urlencoded({ extended: true, verify: captureRawBody }),
   verifySlack,
   (req, res) => {
+    // `/cart test Costco` — practice order that stops before checkout
+    const [sub, ...rest] = (req.body.text || '').trim().split(/\s+/);
+    if (sub && sub.toLowerCase() === 'test') {
+      const storeNames = STORES.map(s => s.name);
+      const store = storeNames.find(s => s.toLowerCase() === rest.join(' ').toLowerCase());
+      if (!ORDER_APPROVERS.has(req.body.user_id)) {
+        return res.json({ response_type: 'ephemeral', text: 'Sorry, only authorized members can run order tests.' });
+      }
+      if (!store) {
+        return res.json({ response_type: 'ephemeral', text: `Usage: \`/cart test ${storeNames.join('|')}\`` });
+      }
+      testOrder(store, req.body.response_url).catch(err => console.error('testOrder failed:', err.message));
+      return res.json({ response_type: 'ephemeral', text: `🧪 Testing the ${store} order — adding items and checking the Instacart cart. This takes a minute or two; nothing will be bought.` });
+    }
     res.json({
       response_type: 'ephemeral',
       text: 'Your cart:',
