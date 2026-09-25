@@ -179,9 +179,11 @@ function cartBlocks(byStore, threshold) {
         ? [
             { type: 'button', text: { type: 'plain_text', text: 'Buy & send now (can\'t be undone)' }, style: 'primary', action_id: 'confirm_order', value: store },
             { type: 'button', text: { type: 'plain_text', text: '➕  Keep adding' }, action_id: 'skip_order', value: store },
+            { type: 'button', text: { type: 'plain_text', text: '🧪 Test order (no purchase)' }, action_id: 'test_order', value: store },
           ]
         : [
             { type: 'button', text: { type: 'plain_text', text: 'Buy & send now (can\'t be undone)' }, style: 'primary', action_id: 'checkout', value: store },
+            { type: 'button', text: { type: 'plain_text', text: '🧪 Test order (no purchase)' }, action_id: 'test_order', value: store },
           ],
     });
 
@@ -425,29 +427,41 @@ app.post('/cart/order/:store', async (req, res) => {
 });
 
 // Practice order: add + verify the Instacart cart, stop before checkout.
-// Cart item statuses are left untouched (everything stays pending).
-async function testOrder(store, responseUrl) {
-  const reply = (text) => slackPost(responseUrl, { response_type: 'ephemeral', text }).catch(() => {});
-  if (orderInProgress.has(store)) return reply(`An order or test for ${store} is already running.`);
+// Cart item statuses are left untouched (everything stays pending). The run is
+// logged to `orders` (status testing/test_passed/test_stopped) so it's visible
+// in GET /cart, and the result is posted to the channel.
+async function testOrder(store, channel) {
+  const post = (text) => slackApi('chat.postMessage', { channel, text }).catch(() => {});
+  if (orderInProgress.has(store)) return post(`An order or test for ${store} is already running.`);
   const items = db.prepare("SELECT * FROM cart_items WHERE store = ? AND status = 'pending'").all(store);
-  if (!items.length) return reply(`The ${store} cart is empty — add something with \`/snacks\` first.`);
+  if (!items.length) return post(`The ${store} cart is empty — add something with \`/snacks\` first.`);
 
   orderInProgress.add(store);
-  const onProgress = (msg) => console.log(`[test:${store}] ${msg}`);
+  const orderId = db.prepare("INSERT INTO orders (store, total, item_count, status) VALUES (?, ?, ?, 'testing')")
+    .run(store, items.reduce((sum, i) => sum + i.price, 0), items.length).lastInsertRowid;
+  const log = [];
+  const onProgress = (msg) => {
+    console.log(`[test:${store}] ${msg}`);
+    log.push(msg);
+    db.prepare('UPDATE orders SET log = ? WHERE id = ?').run(JSON.stringify(log), orderId);
+  };
+  await post(`🧪 Testing the ${store} order — adding items and checking the Instacart cart. This takes a minute or two; nothing will be bought.`);
   try {
     const result = await placeOrder(store, items, onProgress, { dryRun: true });
+    db.prepare("UPDATE orders SET status = 'test_passed' WHERE id = ?").run(orderId);
     const failed = result.failedItems.length
       ? `\n\n⚠️ Couldn't add:\n${result.failedItems.map(n => `• ${n}`).join('\n')}`
       : '';
-    await reply(
+    await post(
       `🧪 *${store} test passed* — the Instacart cart matches Munchy's cart. Nothing was ordered.\n` +
       `${result.verified.map(v => `• ${v}`).join('\n')}${failed}\n\n` +
       `These items are now sitting in the Instacart cart; the next real order will use them without adding them again.`,
     );
   } catch (err) {
-    console.error(`[test:${store}]`, err);
+    onProgress(`Error: ${err.message}${err.details ? `\n${err.details}` : ''}`);
+    db.prepare("UPDATE orders SET status = 'test_stopped' WHERE id = ?").run(orderId);
     const details = err.details ? `\n${err.details}` : '';
-    await reply(`🧪 *${store} test stopped* — nothing was ordered.\n${err.message}${details}`);
+    await post(`🧪 *${store} test stopped* — nothing was ordered.\n${err.message}${details}`);
   } finally {
     orderInProgress.delete(store);
   }
@@ -469,8 +483,8 @@ app.post('/slack/cart',
       if (!store) {
         return res.json({ response_type: 'ephemeral', text: `Usage: \`/cart test ${storeNames.join('|')}\`` });
       }
-      testOrder(store, req.body.response_url).catch(err => console.error('testOrder failed:', err.message));
-      return res.json({ response_type: 'ephemeral', text: `🧪 Testing the ${store} order — adding items and checking the Instacart cart. This takes a minute or two; nothing will be bought.` });
+      testOrder(store, req.body.channel_id || SNACKS_CHANNEL).catch(err => console.error('testOrder failed:', err.message));
+      return res.json({ response_type: 'ephemeral', text: `🧪 Starting ${store} test — results will be posted in this channel.` });
     }
     res.json({
       response_type: 'ephemeral',
@@ -646,6 +660,16 @@ app.post('/slack/interact',
         text: 'Your cart:',
         blocks: fullCartBlocks(),
       });
+      return;
+    }
+
+    if (action.action_id === 'test_order') {
+      const store = action.value;
+      if (!ORDER_APPROVERS.has(userId)) {
+        await slackPost(responseUrl, { response_type: 'ephemeral', text: 'Sorry, only authorized members can run order tests.' });
+        return;
+      }
+      testOrder(store, channelId || SNACKS_CHANNEL).catch(err => console.error('testOrder failed:', err.message));
       return;
     }
 
