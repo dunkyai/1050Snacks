@@ -3,7 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { scrapeInstacart, rankProducts, STORES } = require('./scraper');
-const { placeOrder } = require('./orderer');
+const { placeOrder, CartCheckError } = require('./orderer');
+const { namesMatch } = require('./cart-utils');
 const SWITCHBOT_ITEMS = require('./switchbot-items');
 
 const app = express();
@@ -201,6 +202,37 @@ function getCartByStore() {
   return byStore;
 }
 
+// Items from an order Instacart didn't confirm. They're not re-ordered
+// automatically (that could double-buy); a person checks Instacart and resolves.
+function unconfirmedBlocks() {
+  const rows = db.prepare("SELECT * FROM cart_items WHERE status = 'unconfirmed' ORDER BY added_at").all();
+  const byStore = {};
+  for (const row of rows) (byStore[row.store] ||= []).push(row);
+  const blocks = [];
+  for (const [store, storeRows] of Object.entries(byStore)) {
+    const counts = new Map();
+    for (const r of storeRows) counts.set(r.name, (counts.get(r.name) || 0) + 1);
+    const list = [...counts].map(([name, n]) => `• ${n > 1 ? `${n}× ` : ''}${name}`).join('\n');
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*⚠️ ${store} — unconfirmed order*\nInstacart didn't confirm the last checkout. These may still be sitting in the Instacart cart:\n${list}` },
+    });
+    blocks.push({
+      type: 'actions',
+      elements: [
+        { type: 'button', text: { type: 'plain_text', text: '✅ It was ordered' }, action_id: 'resolve_ordered', value: store },
+        { type: 'button', text: { type: 'plain_text', text: '↩️ Put back in cart' }, action_id: 'resolve_requeue', value: store },
+      ],
+    });
+    blocks.push({ type: 'divider' });
+  }
+  return blocks;
+}
+
+function fullCartBlocks() {
+  return [...cartBlocks(getCartByStore(), ORDER_THRESHOLD), ...unconfirmedBlocks()];
+}
+
 function searchBlocks(store, products) {
   const blocks = [{ type: 'header', text: { type: 'plain_text', text: `${store} results` } }];
   for (const p of products.slice(0, 8)) {
@@ -271,27 +303,44 @@ async function triggerOrder(store) {
     db.prepare('UPDATE orders SET log = ? WHERE id = ?').run(JSON.stringify(log), orderId);
   };
 
+  const setStatus = (status, rowIds) => {
+    if (!rowIds.length) return;
+    db.prepare(`UPDATE cart_items SET status = ? WHERE id IN (${rowIds.map(() => '?').join(',')})`).run(status, ...rowIds);
+  };
+
   try {
     const result = await placeOrder(store, items, onProgress);
     const finalStatus = result.success ? 'placed' : 'check_screenshots';
     db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(finalStatus, orderId);
-    db.prepare(`UPDATE cart_items SET status = 'ordered' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    // Items that couldn't be added go back in the cart. Everything else is only
+    // "ordered" when Instacart confirmed it; otherwise keep it visible in /cart.
+    const failedIds = result.failedIds || [];
+    const attemptedIds = ids.filter(id => !failedIds.includes(id));
+    setStatus('pending', failedIds);
+    setStatus(result.success ? 'ordered' : 'unconfirmed', attemptedIds);
     if (slackChannel) {
       const icon = result.success ? '✅' : '⚠️';
       const receiptPart = result.driveLink ? ` | <${result.driveLink}|Receipt>` : '';
-      await slackApi('chat.postMessage', { channel: slackChannel, text: `${icon} ${store} order ${finalStatus}.${receiptPart} ${result.url || ''}` });
+      const note = result.success ? '' : ' Instacart didn\'t confirm this order — check Instacart, then resolve the items under "Unconfirmed" in `/cart`.';
+      await slackApi('chat.postMessage', { channel: slackChannel, text: `${icon} ${store} order ${finalStatus}.${receiptPart} ${result.url || ''}${note}` });
     }
     if (result.failedItems?.length) {
       await slackApi('chat.postMessage', {
         channel: SNACKS_CHANNEL,
-        text: `⚠️ ${result.failedItems.length} item(s) couldn't be found on Instacart and were skipped:\n${result.failedItems.map(n => `• ${n}`).join('\n')}\nSearch manually with \`/snacks\` to add a substitute.`,
+        text: `⚠️ ${result.failedItems.length} item(s) couldn't be added on Instacart, so they weren't ordered and are still in \`/cart\`:\n${result.failedItems.map(n => `• ${n}`).join('\n')}\nRemove them or search with \`/snacks\` for a substitute.`,
       });
     }
   } catch (err) {
-    onProgress(`Error: ${err.message}`);
+    onProgress(`Error: ${err.message}${err.details ? `\n${err.details}` : ''}`);
     db.prepare('UPDATE orders SET status = ?, log = ? WHERE id = ?').run('failed', JSON.stringify(log), orderId);
-    db.prepare(`UPDATE cart_items SET status = 'pending' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-    if (slackChannel) {
+    setStatus('pending', ids);
+    const channel = slackChannel || SNACKS_CHANNEL;
+    if (err instanceof CartCheckError) {
+      await slackApi('chat.postMessage', {
+        channel,
+        text: `🛑 ${err.message}${err.details ? `\n${err.details}` : ''}\nFix the Instacart cart (or Munchy's \`/cart\`) so they match, then order again. Items already in the Instacart cart won't be added twice.`,
+      });
+    } else if (slackChannel) {
       await slackApi('chat.postMessage', { channel: slackChannel, text: `❌ ${store} order failed — check docker logs for details.` });
     }
   } finally {
@@ -380,11 +429,10 @@ app.post('/slack/cart',
   express.urlencoded({ extended: true, verify: captureRawBody }),
   verifySlack,
   (req, res) => {
-    const byStore = getCartByStore();
     res.json({
       response_type: 'ephemeral',
       text: 'Your cart:',
-      blocks: cartBlocks(byStore, ORDER_THRESHOLD),
+      blocks: fullCartBlocks(),
     });
   }
 );
@@ -549,12 +597,24 @@ app.post('/slack/interact',
 
     if (action.action_id === 'remove_item') {
       db.prepare("DELETE FROM cart_items WHERE id = ? AND status = 'pending'").run(parseInt(action.value));
-      const byStore = getCartByStore();
       await slackPost(responseUrl, {
         response_type: 'ephemeral',
         replace_original: true,
         text: 'Your cart:',
-        blocks: cartBlocks(byStore, ORDER_THRESHOLD),
+        blocks: fullCartBlocks(),
+      });
+      return;
+    }
+
+    if (action.action_id === 'resolve_ordered' || action.action_id === 'resolve_requeue') {
+      const newStatus = action.action_id === 'resolve_ordered' ? 'ordered' : 'pending';
+      db.prepare("UPDATE cart_items SET status = ? WHERE store = ? AND status = 'unconfirmed'").run(newStatus, action.value);
+      console.log(`[interact] ${userId} resolved unconfirmed ${action.value} items -> ${newStatus}`);
+      await slackPost(responseUrl, {
+        response_type: 'ephemeral',
+        replace_original: true,
+        text: 'Your cart:',
+        blocks: fullCartBlocks(),
       });
       return;
     }
@@ -642,6 +702,7 @@ app.post('/webhook/switchbot', async (req, res) => {
     // Look up live price from Instacart; fall back to config price if scraper fails
     let livePrice = itemConfig.price;
     let liveSize = itemConfig.size || null;
+    let productUrl = itemConfig.productUrl || null;
     try {
       const results = [];
       await scrapeInstacart(itemConfig.name, (r) => results.push(r), itemConfig.store);
@@ -651,13 +712,16 @@ app.post('/webhook/switchbot', async (req, res) => {
         livePrice = ranked[0].price;
         liveSize = ranked[0].size || liveSize;
       }
+      // Remember the exact product page so the order adds this product, not a search hit
+      const exact = ranked.find(p => p.productUrl && namesMatch(itemConfig.name, p.name));
+      if (!productUrl && exact) productUrl = exact.productUrl;
     } catch (err) {
       console.error('[switchbot] price lookup failed, using config price:', err.message);
     }
 
     const row = db.prepare(
-      'INSERT INTO cart_items (store, name, price, size, slack_channel) VALUES (?, ?, ?, ?, ?)'
-    ).run(itemConfig.store, itemConfig.name, livePrice, liveSize, SNACKS_CHANNEL);
+      'INSERT INTO cart_items (store, name, price, size, product_url, slack_channel) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(itemConfig.store, itemConfig.name, livePrice, liveSize, productUrl, SNACKS_CHANNEL);
 
     const itemId = row.lastInsertRowid;
     const { total } = db.prepare(

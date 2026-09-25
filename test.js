@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { groupCartItems, reconcileCart, isCartClean, describeMismatch, namesMatch } = require('./cart-utils');
 
 let passed = 0;
 let failed = 0;
@@ -121,6 +122,70 @@ test('correct column order and values', () => {
 test('handles missing drive link', () => {
   const row = buildSheetRow(10, [{ name: 'Chips' }], null);
   assert.strictEqual(row[5], '');
+});
+
+console.log('\nCart grouping (15 of one item → one line, qty 15):');
+test('groups identical rows into one entry with qty', () => {
+  const rows = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, store: 'Safeway', name: 'Signature Select Sparkling Water, Lime, 12 ct', price: 4.99, product_url: 'https://www.instacart.com/products/123' }));
+  const groups = groupCartItems(rows);
+  assert.strictEqual(groups.length, 1);
+  assert.strictEqual(groups[0].qty, 15);
+  assert.strictEqual(groups[0].ids.length, 15);
+  assert.strictEqual(groups[0].productUrl, 'https://www.instacart.com/products/123');
+});
+test('merges a row without URL into the same product', () => {
+  const groups = groupCartItems([
+    { id: 1, store: 'Costco', name: 'Kirkland Coffee, 2 lbs', price: 17, product_url: null },
+    { id: 2, store: 'Costco', name: 'Kirkland Coffee, 2 lbs', price: 17, product_url: 'https://x/p/1' },
+  ]);
+  assert.strictEqual(groups.length, 1);
+  assert.strictEqual(groups[0].qty, 2);
+  assert.strictEqual(groups[0].productUrl, 'https://x/p/1');
+});
+test('keeps different products separate', () => {
+  const groups = groupCartItems([
+    { id: 1, store: 'Costco', name: 'Fly Sticky Pads', price: 10 },
+    { id: 2, store: 'Costco', name: 'AA Batteries 48 ct', price: 20 },
+  ]);
+  assert.strictEqual(groups.length, 2);
+});
+
+console.log('\nInstacart cart reconciliation:');
+test('clean when names and quantities match', () => {
+  const r = reconcileCart([{ name: 'Kirkland AA Batteries, 48 ct', qty: 2 }], [{ name: 'Kirkland Signature AA Batteries 48 ct', qty: 2 }]);
+  assert.ok(isCartClean(r));
+});
+test('flags wrong products added instead of the right one', () => {
+  const r = reconcileCart([{ name: 'Signature Select Sparkling Water, Lime', qty: 15 }], [
+    { name: 'LaCroix Pamplemousse 12 ct', qty: 1 },
+    { name: 'Bubly Cherry 8 ct', qty: 1 },
+  ]);
+  assert.ok(!isCartClean(r));
+  assert.strictEqual(r.missing.length, 1);
+  assert.strictEqual(r.unexpected.length, 2);
+});
+test('flags leftover items that Munchy did not add', () => {
+  const r = reconcileCart([], [{ name: 'Catchmaster Fly Sticky Pads', qty: 1 }]);
+  assert.strictEqual(r.unexpected.length, 1);
+  assert.ok(describeMismatch(r).includes('Fly Sticky Pads'));
+});
+test('flags wrong quantity', () => {
+  const r = reconcileCart([{ name: 'Diet Coke 35 pack', qty: 3 }], [{ name: 'Diet Coke 35 pack', qty: 1 }]);
+  assert.strictEqual(r.qtyMismatch.length, 1);
+});
+test('unknown quantity does not count as a mismatch', () => {
+  const r = reconcileCart([{ name: 'Diet Coke 35 pack', qty: 3 }], [{ name: 'Diet Coke 35 pack', qty: null }]);
+  assert.ok(isCartClean(r));
+});
+test('matches the closest name when two sizes are in the cart', () => {
+  const r = reconcileCart(
+    [{ name: 'Lays Classic Chips 1 oz', qty: 1 }, { name: 'Lays Classic Chips 2 oz', qty: 2 }],
+    [{ name: 'Lays Classic Chips 2 oz', qty: 2 }, { name: 'Lays Classic Chips 1 oz', qty: 1 }],
+  );
+  assert.ok(isCartClean(r));
+});
+test('does not match unrelated products', () => {
+  assert.ok(!namesMatch('Fly Sticky Pads', 'AA Batteries'));
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────

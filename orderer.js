@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 const { saveReceipt } = require('./receipts');
+const { groupCartItems, reconcileCart, isCartClean, describeMismatch } = require('./cart-utils');
 
 const STORE_SLUGS = { Costco: 'costco', Safeway: 'safeway' }; // slug from /store/<slug>/storefront
 
@@ -83,6 +84,139 @@ async function saveOrderPdf(page, url, ts) {
   return imgPath;
 }
 
+// Thrown when the real Instacart cart can't be read or doesn't match what Munchy
+// expects. Always raised BEFORE checkout, so no money is spent.
+class CartCheckError extends Error {
+  constructor(message, details = '') {
+    super(message);
+    this.name = 'CartCheckError';
+    this.details = details;
+  }
+}
+
+async function openCartPanel(page) {
+  const cartBtn = page.locator([
+    'a[href*="/cart"]',
+    'button[aria-label*="cart" i]',
+    'a[aria-label*="cart" i]',
+  ].join(', ')).first();
+  await cartBtn.click({ timeout: 8000 });
+  await page.waitForTimeout(2500);
+}
+
+// Read the line items in this store's Instacart cart.
+// Returns [{ name, qty }] (qty null when the page doesn't expose it),
+// [] for an empty cart, or null if the cart couldn't be read.
+async function readCart(page, slug) {
+  await page.goto(`https://www.instacart.com/store/${slug}/storefront`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.waitForTimeout(3000);
+  await dismissPopups(page);
+  try {
+    await openCartPanel(page);
+  } catch {
+    return null;
+  }
+
+  const result = await page.evaluate(() => {
+    const goBtn = [...document.querySelectorAll('button, a')].find(el => /go to checkout/i.test(el.textContent || ''));
+    if (!goBtn) {
+      const text = document.body.innerText || '';
+      return /cart is empty|your cart is empty|no items in (your )?cart/i.test(text) ? { lines: [] } : null;
+    }
+
+    // Walk up from the checkout button to the panel that holds the product rows
+    let panel = goBtn.parentElement;
+    while (panel && panel !== document.body && !panel.querySelector('li img, [role="listitem"] img')) {
+      panel = panel.parentElement;
+    }
+    if (!panel || panel === document.body) return null;
+
+    const rows = [...panel.querySelectorAll('li, [role="listitem"]')]
+      .filter(r => r.querySelector('img') && !r.querySelector('li, [role="listitem"]'));
+    if (!rows.length) return null;
+
+    const readQty = (row) => {
+      const select = row.querySelector('select');
+      if (select && /^\d+$/.test(select.value)) return parseInt(select.value, 10);
+      for (const el of row.querySelectorAll('[aria-label]')) {
+        const m = el.getAttribute('aria-label').match(/(?:quantity|qty)\D{0,12}(\d+)/i);
+        if (m) return parseInt(m[1], 10);
+      }
+      for (const el of row.querySelectorAll('button, span, div')) {
+        if (el.children.length) continue;
+        const m = (el.textContent || '').trim().match(/^(?:qty:?\s*)?(\d{1,3})$/i);
+        if (m) return parseInt(m[1], 10);
+      }
+      return null;
+    };
+
+    return {
+      lines: rows.map(row => {
+        const alt = (row.querySelector('img')?.getAttribute('alt') || '').trim();
+        const textLine = (row.innerText || '').split('\n').map(l => l.trim())
+          .find(l => l.length > 3 && !/^\$/.test(l) && /[a-z]{3}/i.test(l));
+        return { name: alt.length > 3 ? alt : (textLine || ''), qty: readQty(row) };
+      }).filter(l => l.name),
+    };
+  }).catch(() => null);
+
+  return result ? result.lines : null;
+}
+
+// Add one product to the cart `count` times. Prefers the exact product page we
+// saved when the item was added in Slack; falls back to a search, but only clicks
+// Add inside a result whose title matches the item.
+async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
+  let scope;
+  if (group.productUrl) {
+    await page.goto(group.productUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(3000);
+    scope = page.locator('[role="dialog"], main').first();
+    if (!(await scope.isVisible().catch(() => false))) scope = page.locator('body');
+  } else {
+    const searchUrl = `https://www.instacart.com/store/${slug}/s?k=${encodeURIComponent(group.name)}`;
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(3000);
+    const firstClause = group.name.split(',')[0].trim();
+    scope = page.locator('li, [role="listitem"]')
+      .filter({ hasText: firstClause })
+      .filter({ has: page.locator('button') })
+      .first();
+    await scope.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
+      throw new Error(`no search result titled like "${firstClause}"`);
+    });
+  }
+
+  let remaining = count;
+  if (!alreadyInCart) {
+    const addBtn = scope.locator('button[aria-label*="Add to cart" i], button:has-text("Add to cart"), button:text-is("Add")').first();
+    await addBtn.waitFor({ state: 'visible', timeout: 8000 });
+    await addBtn.click();
+    await page.waitForTimeout(2000);
+    remaining -= 1;
+  }
+
+  if (remaining > 0) {
+    const incBtn = scope.locator([
+      'button[aria-label*="Increment" i]',
+      'button[aria-label*="Increase" i]',
+      'button[aria-label*="Add one" i]',
+      'button[aria-label*="Add 1" i]',
+    ].join(', ')).first();
+    try {
+      await incBtn.waitFor({ state: 'visible', timeout: 5000 });
+    } catch {
+      // Cart verification will catch the wrong quantity before checkout
+      onProgress(`Couldn't find quantity control for "${group.name}" — cart check will flag it`);
+      return;
+    }
+    for (let n = 0; n < remaining; n++) {
+      await incBtn.click();
+      await page.waitForTimeout(800);
+    }
+  }
+}
+
 async function placeOrder(store, items, onProgress) {
   const slug = STORE_SLUGS[store] || store.toLowerCase();
   onProgress(`Starting ${store} order — ${items.length} item(s)…`);
@@ -101,64 +235,69 @@ async function placeOrder(store, items, onProgress) {
   const shot = (label) => page.screenshot({ path: `/tmp/order-${ts}-${label}.png` }).catch(() => {});
 
   const failedItems = [];
+  const failedIds = [];
+  const groups = groupCartItems(items);
 
   try {
-    // Add each item by searching for it in the store
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      // Use first clause of product name (before first comma) as search term
-      const searchTerm = item.name.split(',')[0].trim();
-      onProgress(`Searching for "${searchTerm}" (${i + 1}/${items.length})…`);
+    // Read the real Instacart cart before touching it. Leftovers from an earlier
+    // run (or items someone added by hand) would otherwise be checked out silently.
+    onProgress('Checking current Instacart cart…');
+    const before = await readCart(page, slug);
+    await shot('cart-before');
+    if (!before) throw new CartCheckError(`Couldn't read the ${store} Instacart cart, so nothing was added or ordered.`);
+    const pre = reconcileCart(groups, before);
+    if (pre.unexpected.length) {
+      throw new CartCheckError(
+        `The ${store} Instacart cart already has items Munchy didn't add. Nothing was added or ordered.`,
+        describeMismatch({ missing: [], unexpected: pre.unexpected, qtyMismatch: [] }),
+      );
+    }
+    const alreadyInCart = new Map(pre.matched.map(m => [m.group, m.line.qty ?? m.group.qty]));
 
-      const searchUrl = `https://www.instacart.com/store/${slug}/s?k=${encodeURIComponent(searchTerm)}`;
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForTimeout(3000);
-      await shot(`search-${i}`);
-
-      // Find the "Add" button on the first product card
-      // Instacart renders add buttons as "+" or "Add" — grab the first visible one
-      const addBtn = page.locator([
-        'button[aria-label*="Add to cart" i]',
-        'button[aria-label*="Add" i][aria-label*="' + searchTerm.split(' ')[0] + '" i]',
-        'button:has-text("+")',
-      ].join(', ')).first();
-
+    // Add each distinct product once, then bump it to the right quantity
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      const have = alreadyInCart.get(group) || 0;
+      const need = group.qty - have;
+      if (need <= 0) {
+        onProgress(`Already in cart: ${group.qty}× "${group.name}" ✓`);
+        continue;
+      }
+      onProgress(`Adding ${need}× "${group.name}" (${i + 1}/${groups.length})…`);
       try {
-        await addBtn.waitFor({ state: 'visible', timeout: 8000 });
-        await addBtn.click();
-        await page.waitForTimeout(2000);
-        onProgress(`Added "${item.name}" ✓`);
+        await addProduct(page, slug, group, need, have > 0, onProgress);
+        onProgress(`Added ${need}× "${group.name}" ✓`);
         await shot(`added-${i}`);
       } catch (err) {
-        onProgress(`Could not add "${item.name}": ${err.message}`);
-        failedItems.push(item.name);
+        onProgress(`Could not add "${group.name}": ${err.message}`);
+        failedItems.push(group.name);
+        failedIds.push(...group.ids);
         await shot(`failed-${i}`);
       }
     }
 
-    // Dismiss any blocking dialogs (address picker, promos, etc.) before navigating cart
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
-    // Also try clicking outside any dialog overlay
-    await page.evaluate(() => {
-      const overlay = document.querySelector('[data-dialog-ref]');
-      if (overlay) overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    }).catch(() => {});
-    await page.waitForTimeout(500);
+    // Verify the Instacart cart matches exactly what we meant to buy before checkout
+    onProgress('Verifying Instacart cart before checkout…');
+    const after = await readCart(page, slug);
+    await shot('cart-after');
+    if (!after) throw new CartCheckError(`Couldn't read the ${store} Instacart cart to verify it, so the order was NOT placed.`);
+    const expected = groups.filter(g => !failedItems.includes(g.name));
+    if (!expected.length) throw new CartCheckError(`None of the ${store} items could be added, so the order was NOT placed.`);
+    const post = reconcileCart(expected, after);
+    if (!isCartClean(post)) {
+      throw new CartCheckError(
+        `The ${store} Instacart cart doesn't match Munchy's cart, so the order was NOT placed.`,
+        describeMismatch(post),
+      );
+    }
+    onProgress(`Cart verified: ${expected.length} product(s) match ✓`);
 
-    // Click the cart button (top-right) to open the cart panel
-    onProgress('Opening cart…');
-    const cartBtn = page.locator([
-      'a[href*="/cart"]',
-      'button[aria-label*="cart" i]',
-      'a[aria-label*="cart" i]',
-    ].join(', ')).first();
-    await cartBtn.click({ timeout: 8000 });
-    await page.waitForTimeout(2000);
-    await shot('checkout1');
-
-    // "Go to checkout" button in the cart panel — use force:true to bypass any lingering overlay
+    // readCart leaves the cart panel open; reopen it if something closed it
     const goBtn = page.locator('button:has-text("Go to checkout"), a:has-text("Go to checkout")').first();
+    if (!(await goBtn.isVisible().catch(() => false))) {
+      await openCartPanel(page);
+      await shot('checkout1');
+    }
     await goBtn.waitFor({ state: 'visible', timeout: 8000 });
     await goBtn.click({ force: true });
     await page.waitForTimeout(4000);
@@ -211,10 +350,11 @@ async function placeOrder(store, items, onProgress) {
       const finalUrl = page.url();
       const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
       const pdfPath = await saveOrderPdf(page, finalUrl, ts);
-      const total = items.reduce((s, i) => s + i.price, 0);
-      const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, items).catch(() => null);
+      const ordered = items.filter(i => !failedIds.includes(i.id));
+      const total = ordered.reduce((s, i) => s + i.price, 0);
+      const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, ordered).catch(() => null);
       onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
-      return { success, url: finalUrl, driveLink, failedItems };
+      return { success, url: finalUrl, driveLink, failedItems, failedIds };
     } catch {
       // No tip modal — fall through to look for Place order button
     }
@@ -238,10 +378,11 @@ async function placeOrder(store, items, onProgress) {
     const finalUrl = page.url();
     const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
     const pdfPath = await saveOrderPdf(page, finalUrl, ts);
-    const total = items.reduce((s, i) => s + i.price, 0);
-    const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, items).catch(() => null);
+    const ordered = items.filter(i => !failedIds.includes(i.id));
+    const total = ordered.reduce((s, i) => s + i.price, 0);
+    const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, ordered).catch(() => null);
     onProgress(success ? `Order placed! ${finalUrl}` : `Submitted — verify at ${finalUrl}`);
-    return { success, url: finalUrl, driveLink, failedItems };
+    return { success, url: finalUrl, driveLink, failedItems, failedIds };
 
   } catch (err) {
     await shot('error');
@@ -251,4 +392,4 @@ async function placeOrder(store, items, onProgress) {
   }
 }
 
-module.exports = { placeOrder };
+module.exports = { placeOrder, CartCheckError };
