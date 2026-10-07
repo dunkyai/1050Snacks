@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { scrapeInstacart, rankProducts, STORES } = require('./scraper');
 const { placeOrder, CartCheckError } = require('./orderer');
-const { namesMatch } = require('./cart-utils');
+const { namesMatch, groupCartItems } = require('./cart-utils');
 const SWITCHBOT_ITEMS = require('./switchbot-items');
 
 const app = express();
@@ -127,7 +127,7 @@ function cartConfirmBlocks(store, total, items) {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `🛒 *${store} cart — $${total.toFixed(2)}* (${items.length} item${items.length !== 1 ? 's' : ''})\n${items.map(i => `• ${i.name} — $${i.price.toFixed(2)}`).join('\n')}\n\nReady to order?`,
+          text: `🛒 *${store} cart — $${total.toFixed(2)}* (${items.length} item${items.length !== 1 ? 's' : ''})\n${groupCartItems(items).map(g => `• ${g.qty > 1 ? `${g.qty}× ` : ''}${g.name} — $${(g.price * g.qty).toFixed(2)}`).join('\n').slice(0, 2500)}\n\nReady to order?`,
         },
       },
       {
@@ -140,6 +140,8 @@ function cartConfirmBlocks(store, total, items) {
     ],
   };
 }
+
+const MAX_CART_LINES = 12; // per store, keeps /cart under Slack's 50-block limit
 
 function cartBlocks(byStore, threshold) {
   const blocks = [];
@@ -159,18 +161,24 @@ function cartBlocks(byStore, threshold) {
       text: { type: 'mrkdwn', text: `*${store} Cart — $${info.total.toFixed(2)} / $${threshold}*\n${bar}  ${ready ? '✅ Ready to order!' : `$${(threshold - info.total).toFixed(2)} to go`}` },
     });
 
-    for (const item of info.items) {
+    // One line per product (Slack rejects messages over 50 blocks, and a cart
+    // can hold dozens of copies of the same item). Remove takes off one copy.
+    const groups = groupCartItems(info.items);
+    for (const g of groups.slice(0, MAX_CART_LINES)) {
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `• ${item.name} — $${item.price.toFixed(2)}` },
+        text: { type: 'mrkdwn', text: `• ${g.qty > 1 ? `*${g.qty}×* ` : ''}${g.name} — $${g.price.toFixed(2)}${g.qty > 1 ? ` each ($${(g.price * g.qty).toFixed(2)})` : ''}` },
         accessory: {
           type: 'button',
-          text: { type: 'plain_text', text: 'Remove' },
+          text: { type: 'plain_text', text: g.qty > 1 ? 'Remove 1' : 'Remove' },
           style: 'danger',
           action_id: 'remove_item',
-          value: String(item.id),
+          value: String(g.ids[g.ids.length - 1]),
         },
       });
+    }
+    if (groups.length > MAX_CART_LINES) {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `…and ${groups.length - MAX_CART_LINES} more products` }] });
     }
 
     blocks.push({
