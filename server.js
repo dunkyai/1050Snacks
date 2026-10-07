@@ -141,7 +141,8 @@ function cartConfirmBlocks(store, total, items) {
   };
 }
 
-const MAX_CART_LINES = 12; // per store, keeps /cart under Slack's 50-block limit
+const MAX_CART_LINES = 10; // per store, keeps /cart under Slack's 50-block limit
+const SLACK_MAX_BLOCKS = 50;
 
 function cartBlocks(byStore, threshold) {
   const blocks = [];
@@ -176,6 +177,24 @@ function cartBlocks(byStore, threshold) {
           value: String(g.ids[g.ids.length - 1]),
         },
       });
+      if (g.qty > 1) {
+        blocks.push({
+          type: 'actions',
+          elements: [{
+            type: 'button',
+            text: { type: 'plain_text', text: `Remove all ${g.qty}` },
+            style: 'danger',
+            action_id: 'remove_all',
+            value: g.ids.join(','),
+            confirm: {
+              title: { type: 'plain_text', text: 'Remove all?' },
+              text: { type: 'plain_text', text: `Remove all ${g.qty} of ${g.name.slice(0, 200)} from the ${store} cart?` },
+              confirm: { type: 'plain_text', text: 'Remove all' },
+              deny: { type: 'plain_text', text: 'Cancel' },
+            },
+          }],
+        });
+      }
     }
     if (groups.length > MAX_CART_LINES) {
       blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `…and ${groups.length - MAX_CART_LINES} more products` }] });
@@ -240,7 +259,13 @@ function unconfirmedBlocks() {
 }
 
 function fullCartBlocks() {
-  return [...cartBlocks(getCartByStore(), ORDER_THRESHOLD), ...unconfirmedBlocks()];
+  const blocks = [...cartBlocks(getCartByStore(), ORDER_THRESHOLD), ...unconfirmedBlocks()];
+  if (blocks.length <= SLACK_MAX_BLOCKS) return blocks;
+  // Last-resort guard: Slack rejects the whole message over 50 blocks
+  return [
+    ...blocks.slice(0, SLACK_MAX_BLOCKS - 1),
+    { type: 'context', elements: [{ type: 'mrkdwn', text: '…cart too long to show in full — remove some items to see the rest.' }] },
+  ];
 }
 
 function searchBlocks(store, products) {
@@ -658,6 +683,21 @@ app.post('/slack/interact',
           });
         }
       }
+    }
+
+    if (action.action_id === 'remove_all') {
+      const ids = action.value.split(',').map(Number).filter(Number.isInteger);
+      if (ids.length) {
+        db.prepare(`DELETE FROM cart_items WHERE status = 'pending' AND id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+      }
+      console.log(`[interact] ${userId} removed ${ids.length} cart rows`);
+      await slackPost(responseUrl, {
+        response_type: 'ephemeral',
+        replace_original: true,
+        text: 'Your cart:',
+        blocks: fullCartBlocks(),
+      });
+      return;
     }
 
     if (action.action_id === 'remove_item') {
