@@ -130,6 +130,12 @@ function scanCartPanel() {
 
   const productCount = (el) => new Set([...el.querySelectorAll('img[alt]')].filter(isTitle).map(i => norm(i.alt))).size;
   const readQty = (row) => {
+    // Instacart's cart stepper: [Decrement|Remove] <N ct> [Increment quantity of …]
+    const inc = [...row.querySelectorAll('[aria-label]')].find(el => /increment quantity/i.test(el.getAttribute('aria-label')));
+    if (inc && inc.parentElement) {
+      const m = (inc.parentElement.innerText || '').match(/(\d{1,3})/);
+      if (m) return parseInt(m[1], 10);
+    }
     const select = row.querySelector('select');
     if (select && /^\d+$/.test(select.value)) return parseInt(select.value, 10);
     for (const el of row.querySelectorAll('[aria-label]')) {
@@ -255,13 +261,11 @@ async function markProductCard(page, name) {
 // saved when the item was added in Slack; falls back to a search, but only clicks
 // Add inside a result whose title matches the item.
 async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
+  // Always go through search: on product pages the Add button wasn't found
+  // (Oct 16), and a page-wide scope also holds related products' Add buttons.
+  // Search + markProductCard pins the click to this product's own card.
   let scope;
-  if (group.productUrl) {
-    await page.goto(group.productUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.waitForTimeout(3000);
-    scope = page.locator('[role="dialog"], main').first();
-    if (!(await scope.isVisible().catch(() => false))) scope = page.locator('body');
-  } else {
+  {
     const searchUrl = `https://www.instacart.com/store/${slug}/s?k=${encodeURIComponent(group.name)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForTimeout(3000);
@@ -323,6 +327,24 @@ async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
       await page.waitForTimeout(800);
     }
   }
+}
+
+// Did "Place order" work? Instacart sometimes stays on /checkout_v4 after placing.
+async function looksConfirmed(page, url) {
+  if (/confirm|thank|order[_-]?detail|\/orders?\//i.test(url)) return true;
+  const text = await page.locator('body').innerText().catch(() => '');
+  return /order (is )?(placed|confirmed|received)|thanks for your order|thank you for your order|we.re on it|your order is on its way/i.test(text);
+}
+
+// Fallback confirmation: after a successful order the store's cart is empty.
+async function cartEmptied(page, slug, onProgress) {
+  const read = await readCart(page, slug).catch(() => ({ lines: null }));
+  if (read.lines && read.lines.length === 0) {
+    onProgress('Instacart cart is now empty — treating the order as placed');
+    return true;
+  }
+  onProgress(read.lines ? `Instacart cart still has ${read.lines.length} product(s) after checkout — order not confirmed` : `Couldn't re-read the cart after checkout (${read.why})`);
+  return false;
 }
 
 async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
@@ -473,8 +495,9 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
       await tipConfirm.click();
       await page.waitForTimeout(5000);
       const finalUrl = page.url();
-      const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+      const confirmedOnPage = await looksConfirmed(page, finalUrl);
       const pdfPath = await saveOrderPdf(page, finalUrl, ts);
+      const success = confirmedOnPage || await cartEmptied(page, slug, onProgress);
       const ordered = items.filter(i => !failedIds.includes(i.id));
       const total = ordered.reduce((s, i) => s + i.price, 0);
       const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, ordered).catch(() => null);
@@ -501,8 +524,9 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
     await placeBtn.click();
     await page.waitForTimeout(5000);
     const finalUrl = page.url();
-    const success = /confirm|thank|order[_-]?detail/i.test(finalUrl);
+    const confirmedOnPage = await looksConfirmed(page, finalUrl);
     const pdfPath = await saveOrderPdf(page, finalUrl, ts);
+    const success = confirmedOnPage || await cartEmptied(page, slug, onProgress);
     const ordered = items.filter(i => !failedIds.includes(i.id));
     const total = ordered.reduce((s, i) => s + i.price, 0);
     const driveLink = await saveReceipt(pdfPath, finalUrl, store, total, ordered).catch(() => null);
