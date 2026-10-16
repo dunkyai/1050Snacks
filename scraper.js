@@ -125,6 +125,11 @@ async function scrapeStore(page, store, query) {
         if (card.tagName === 'A' && (card.href || '').includes('/store/')) {
           productLink = card;
         }
+        // The card we climbed to can sit inside the product <a> rather than be it
+        if (!productLink) {
+          const outer = card.closest('a[href]');
+          if (outer && /\/products?\//.test(outer.href || '')) productLink = outer;
+        }
         // Fallback: inner <a> links (handles future markup changes or other layouts)
         if (!productLink) {
           productLink = Array.from(card.querySelectorAll('a[href]')).find(a => {

@@ -163,6 +163,15 @@ async function readCart(page, slug) {
   return result ? result.lines : null;
 }
 
+// Summarize the buttons in a scope (aria-label | text) so a failed click
+// leaves enough in the order log to fix the selector without server access.
+async function describeButtons(scope) {
+  const labels = await scope.locator('button').evaluateAll(bs => bs.slice(0, 12).map(b =>
+    `[${(b.getAttribute('aria-label') || '').slice(0, 60)} | ${(b.innerText || '').trim().slice(0, 30)}]`,
+  )).catch(() => []);
+  return labels.length ? labels.join(' ') : '(none)';
+}
+
 // Add one product to the cart `count` times. Prefers the exact product page we
 // saved when the item was added in Slack; falls back to a search, but only clicks
 // Add inside a result whose title matches the item.
@@ -181,16 +190,30 @@ async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
     scope = page.locator('li, [role="listitem"]')
       .filter({ hasText: firstClause })
       .filter({ has: page.locator('button') })
+      // innermost item only, so a carousel <li> wrapping several products can't win
+      .filter({ hasNot: page.locator('li, [role="listitem"]') })
       .first();
     await scope.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
-      throw new Error(`no search result titled like "${firstClause}"`);
+      throw new Error(`no search result titled like "${firstClause}" on ${page.url()}`);
     });
   }
 
   let remaining = count;
   if (!alreadyInCart) {
-    const addBtn = scope.locator('button[aria-label*="Add to cart" i], button:has-text("Add to cart"), button:text-is("Add")').first();
-    await addBtn.waitFor({ state: 'visible', timeout: 8000 });
+    // Search cards show a "+" icon button labelled like "Add 1 ct <product>".
+    // Scoped to this product's card/page, so a loose match is safe here.
+    const addBtn = scope.locator([
+      'button[aria-label*="Add to cart" i]',
+      'button[aria-label^="Add" i]:not([aria-label*="list" i])',
+      'button:has-text("Add to cart")',
+      'button:text-is("Add")',
+      'button:text-is("+")',
+    ].join(', ')).first();
+    try {
+      await addBtn.waitFor({ state: 'visible', timeout: 8000 });
+    } catch {
+      throw new Error(`no Add button found. Buttons here: ${await describeButtons(scope)}`);
+    }
     await addBtn.click();
     await page.waitForTimeout(2000);
     remaining -= 1;
@@ -207,7 +230,7 @@ async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
       await incBtn.waitFor({ state: 'visible', timeout: 5000 });
     } catch {
       // Cart verification will catch the wrong quantity before checkout
-      onProgress(`Couldn't find quantity control for "${group.name}" — cart check will flag it`);
+      onProgress(`Couldn't find quantity control for "${group.name}" — cart check will flag it. Buttons here: ${await describeButtons(scope)}`);
       return;
     }
     for (let n = 0; n < remaining; n++) {
