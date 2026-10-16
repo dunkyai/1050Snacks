@@ -172,6 +172,48 @@ async function describeButtons(scope) {
   return labels.length ? labels.join(' ') : '(none)';
 }
 
+// Find the search result for `name` and tag its card with data-munchy-card="1".
+// Product images carry the title as alt text (the scraper reads names the same
+// way). From the best-matching image, climb to the smallest ancestor that has a
+// button but holds only this one product, so a neighbour's button can't be used.
+async function markProductCard(page, name) {
+  return page.evaluate((wanted) => {
+    const norm = (t) => String(t || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9.]+/g, ' ').trim();
+    const target = norm(wanted);
+    const core = norm(String(wanted).split(',')[0]);
+    const coreTokens = core.split(' ').filter(t => t.length > 1);
+    const score = (alt) => {
+      const a = norm(alt);
+      if (!a) return 0;
+      if (a === target) return 4;
+      if (a.includes(target) || target.includes(a)) return 3;
+      if (a.includes(core)) return 2;
+      const toks = new Set(a.split(' '));
+      return coreTokens.length && coreTokens.filter(t => toks.has(t)).length / coreTokens.length >= 0.8 ? 1 : 0;
+    };
+
+    document.querySelectorAll('[data-munchy-card]').forEach(el => el.removeAttribute('data-munchy-card'));
+    const imgs = [...document.querySelectorAll('img[alt]')].filter(i => i.alt.trim().length > 4);
+    const seen = [...new Set(imgs.map(i => i.alt.trim()))].slice(0, 8).map(t => t.slice(0, 70));
+    const ranked = imgs.map(img => ({ img, s: score(img.alt) })).filter(r => r.s > 0).sort((x, y) => y.s - x.s);
+    if (!ranked.length) return { ok: false, reason: `no search result titled like "${wanted}"`, seen };
+
+    // product titles are long; short alts are badges/logos and don't count as products
+    const productCount = (el) => new Set([...el.querySelectorAll('img[alt]')].map(i => norm(i.alt)).filter(t => t.length > 15)).size;
+    for (const { img } of ranked) {
+      let el = img.parentElement;
+      for (let depth = 0; el && el !== document.body && depth < 12; depth++, el = el.parentElement) {
+        if (productCount(el) > 1) break; // climbed past this product's card
+        if (el.querySelector('button')) {
+          el.setAttribute('data-munchy-card', '1');
+          return { ok: true, title: img.alt.trim() };
+        }
+      }
+    }
+    return { ok: false, reason: `found "${ranked[0].img.alt.trim()}" but no button in its card`, seen };
+  }, name);
+}
+
 // Add one product to the cart `count` times. Prefers the exact product page we
 // saved when the item was added in Slack; falls back to a search, but only clicks
 // Add inside a result whose title matches the item.
@@ -186,16 +228,14 @@ async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
     const searchUrl = `https://www.instacart.com/store/${slug}/s?k=${encodeURIComponent(group.name)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForTimeout(3000);
-    const firstClause = group.name.split(',')[0].trim();
-    scope = page.locator('li, [role="listitem"]')
-      .filter({ hasText: firstClause })
-      .filter({ has: page.locator('button') })
-      // innermost item only, so a carousel <li> wrapping several products can't win
-      .filter({ hasNot: page.locator('li, [role="listitem"]') })
-      .first();
-    await scope.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
-      throw new Error(`no search result titled like "${firstClause}" on ${page.url()}`);
-    });
+    // Wait for results to render (product images carry the product title as alt text)
+    await page.locator('img[alt]').first().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+    const found = await markProductCard(page, group.name);
+    if (!found.ok) {
+      throw new Error(`${found.reason} on ${page.url()}. Results seen: ${found.seen.join(' ; ') || '(none)'}`);
+    }
+    onProgress(`Matched search result "${found.title}"`);
+    scope = page.locator('[data-munchy-card="1"]');
   }
 
   let remaining = count;
@@ -426,4 +466,4 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
   }
 }
 
-module.exports = { placeOrder, CartCheckError };
+module.exports = { placeOrder, CartCheckError, markProductCard };
