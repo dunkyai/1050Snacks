@@ -104,63 +104,80 @@ async function openCartPanel(page) {
   await page.waitForTimeout(2500);
 }
 
+// Runs in the page (self-contained): scan the open cart panel for products.
+function scanCartPanel() {
+  const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9.]+/g, ' ').trim();
+  const isTitle = (img) => (img.getAttribute('alt') || '').trim().length > 15; // short alts are badges/logos
+  const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  const clickables = [...document.querySelectorAll('button, a')].filter(visible);
+  const goBtn = clickables.find(el => /go to checkout/i.test(el.textContent || ''))
+    || clickables.find(el => /checkout/i.test(el.textContent || '') && !/sign|log ?in/i.test(el.textContent || ''));
+  const emptyText = /cart is empty|your cart is empty|no items in (your )?cart|haven.t added/i.test(document.body.innerText || '');
+  const diag = () => `visible buttons: ${clickables.slice(0, 15).map(b => `[${(b.getAttribute('aria-label') || '').slice(0, 40)} | ${(b.innerText || '').trim().slice(0, 30)}]`).join(' ')}`;
+
+  if (!goBtn) return emptyText ? { lines: [] } : { lines: null, why: `no checkout button in the cart panel; ${diag()}` };
+
+  // The cart panel: the dialog/aside holding the checkout button, else the
+  // nearest ancestor of the button that contains product images
+  let panel = goBtn.closest('[role="dialog"], aside, [aria-modal="true"]');
+  if (!panel || ![...panel.querySelectorAll('img[alt]')].some(isTitle)) {
+    panel = goBtn.parentElement;
+    while (panel && panel !== document.body && ![...panel.querySelectorAll('img[alt]')].some(isTitle)) panel = panel.parentElement;
+  }
+  if (!panel || panel === document.body) {
+    return emptyText ? { lines: [] } : { lines: null, why: `no product images near the checkout button; ${diag()}` };
+  }
+
+  const productCount = (el) => new Set([...el.querySelectorAll('img[alt]')].filter(isTitle).map(i => norm(i.alt))).size;
+  const readQty = (row) => {
+    const select = row.querySelector('select');
+    if (select && /^\d+$/.test(select.value)) return parseInt(select.value, 10);
+    for (const el of row.querySelectorAll('[aria-label]')) {
+      const m = el.getAttribute('aria-label').match(/(?:quantity|qty)\D{0,12}(\d+)/i);
+      if (m) return parseInt(m[1], 10);
+    }
+    for (const el of row.querySelectorAll('button, [role="button"], select, span, div')) {
+      if (el.children.length && el.tagName !== 'BUTTON') continue;
+      const t = (el.textContent || '').trim();
+      const m = t.match(/^(?:qty:?\s*)?(\d{1,3})$/i) || (el.tagName === 'BUTTON' && t.match(/^(\d{1,3})\s*(?:ct|x|×)?$/i));
+      if (m) return parseInt(m[1], 10);
+    }
+    return null;
+  };
+
+  const seen = new Set();
+  const lines = [];
+  for (const img of panel.querySelectorAll('img[alt]')) {
+    if (!isTitle(img)) continue;
+    const name = img.alt.trim();
+    if (seen.has(norm(name))) continue;
+    seen.add(norm(name));
+    // Largest ancestor inside the panel that still holds only this product = its row
+    let row = img;
+    while (row.parentElement && row.parentElement !== panel && productCount(row.parentElement) === 1) row = row.parentElement;
+    lines.push({ name, qty: readQty(row) });
+  }
+  if (!lines.length) return emptyText ? { lines: [] } : { lines: null, why: `cart panel found but no products in it; ${diag()}` };
+  return { lines };
+}
+
 // Read the line items in this store's Instacart cart.
-// Returns [{ name, qty }] (qty null when the page doesn't expose it),
-// [] for an empty cart, or null if the cart couldn't be read.
+// Returns { lines: [{ name, qty }] } (qty null when the page doesn't expose it;
+// [] for an empty cart), or { lines: null, why } if the cart couldn't be read.
+// Products are found by their image's alt text, like markProductCard does.
 async function readCart(page, slug) {
   await page.goto(`https://www.instacart.com/store/${slug}/storefront`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForTimeout(3000);
   await dismissPopups(page);
   try {
     await openCartPanel(page);
-  } catch {
-    return null;
+  } catch (err) {
+    return { lines: null, why: `couldn't open the cart panel (${err.message.split('\n')[0]})` };
   }
 
-  const result = await page.evaluate(() => {
-    const goBtn = [...document.querySelectorAll('button, a')].find(el => /go to checkout/i.test(el.textContent || ''));
-    if (!goBtn) {
-      const text = document.body.innerText || '';
-      return /cart is empty|your cart is empty|no items in (your )?cart/i.test(text) ? { lines: [] } : null;
-    }
+  const result = await page.evaluate(scanCartPanel).catch(err => ({ lines: null, why: `page script failed: ${err.message.split('\n')[0]}` }));
 
-    // Walk up from the checkout button to the panel that holds the product rows
-    let panel = goBtn.parentElement;
-    while (panel && panel !== document.body && !panel.querySelector('li img, [role="listitem"] img')) {
-      panel = panel.parentElement;
-    }
-    if (!panel || panel === document.body) return null;
-
-    const rows = [...panel.querySelectorAll('li, [role="listitem"]')]
-      .filter(r => r.querySelector('img') && !r.querySelector('li, [role="listitem"]'));
-    if (!rows.length) return null;
-
-    const readQty = (row) => {
-      const select = row.querySelector('select');
-      if (select && /^\d+$/.test(select.value)) return parseInt(select.value, 10);
-      for (const el of row.querySelectorAll('[aria-label]')) {
-        const m = el.getAttribute('aria-label').match(/(?:quantity|qty)\D{0,12}(\d+)/i);
-        if (m) return parseInt(m[1], 10);
-      }
-      for (const el of row.querySelectorAll('button, span, div')) {
-        if (el.children.length) continue;
-        const m = (el.textContent || '').trim().match(/^(?:qty:?\s*)?(\d{1,3})$/i);
-        if (m) return parseInt(m[1], 10);
-      }
-      return null;
-    };
-
-    return {
-      lines: rows.map(row => {
-        const alt = (row.querySelector('img')?.getAttribute('alt') || '').trim();
-        const textLine = (row.innerText || '').split('\n').map(l => l.trim())
-          .find(l => l.length > 3 && !/^\$/.test(l) && /[a-z]{3}/i.test(l));
-        return { name: alt.length > 3 ? alt : (textLine || ''), qty: readQty(row) };
-      }).filter(l => l.name),
-    };
-  }).catch(() => null);
-
-  return result ? result.lines : null;
+  return result;
 }
 
 // Summarize the buttons in a scope (aria-label | text) so a failed click
@@ -305,9 +322,11 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
     // Read the real Instacart cart before touching it. Leftovers from an earlier
     // run (or items someone added by hand) would otherwise be checked out silently.
     onProgress('Checking current Instacart cart…');
-    const before = await readCart(page, slug);
+    const beforeRead = await readCart(page, slug);
     await shot('cart-before');
-    if (!before) throw new CartCheckError(`Couldn't read the ${store} Instacart cart, so nothing was added or ordered.`);
+    const before = beforeRead.lines;
+    if (!before) throw new CartCheckError(`Couldn't read the ${store} Instacart cart, so nothing was added or ordered.`, `Why: ${beforeRead.why}`);
+    onProgress(`Instacart cart has ${before.length} product(s)${before.length ? `: ${before.map(l => `${l.qty ?? '?'}× ${l.name}`).join('; ')}` : ''}`);
     const pre = reconcileCart(groups, before);
     if (pre.unexpected.length) {
       throw new CartCheckError(
@@ -341,9 +360,11 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
 
     // Verify the Instacart cart matches exactly what we meant to buy before checkout
     onProgress('Verifying Instacart cart before checkout…');
-    const after = await readCart(page, slug);
+    const afterRead = await readCart(page, slug);
     await shot('cart-after');
-    if (!after) throw new CartCheckError(`Couldn't read the ${store} Instacart cart to verify it, so the order was NOT placed.`);
+    const after = afterRead.lines;
+    if (!after) throw new CartCheckError(`Couldn't read the ${store} Instacart cart to verify it, so the order was NOT placed.`, `Why: ${afterRead.why}`);
+    onProgress(`Instacart cart now has: ${after.map(l => `${l.qty ?? '?'}× ${l.name}`).join('; ') || '(nothing)'}`);
     const expected = groups.filter(g => !failedItems.includes(g.name));
     if (!expected.length) throw new CartCheckError(`None of the ${store} items could be added, so the order was NOT placed.`);
     const post = reconcileCart(expected, after);
@@ -466,4 +487,4 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
   }
 }
 
-module.exports = { placeOrder, CartCheckError, markProductCard };
+module.exports = { placeOrder, CartCheckError, markProductCard, scanCartPanel };
