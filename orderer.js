@@ -145,8 +145,33 @@ function scanCartPanel() {
     return null;
   };
 
+  // The cart panel also shows suggested products ("Customers also bought", …).
+  // Those sit under a recommendation heading and/or offer an "Add" button
+  // instead of the remove/quantity controls a real cart line has.
+  const RECS = /also (bought|like|need)|you (may|might)|suggest|recommend|complete your|frequently bought|popular|similar|before you (go|checkout)|don.t forget|sponsored|add more/i;
+  // Section headings only: skip headings inside this row and ones that are just a product's title
+  const titles = [...panel.querySelectorAll('img[alt]')].filter(isTitle).map(i => norm(i.alt));
+  const isProductTitle = (t) => { const n = norm(t); return n.length > 10 && titles.some(a => a.includes(n) || n.includes(a)); };
+  const sectionHeadingOf = (el, row) => [...el.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
+    .filter(h => !row.contains(h))
+    .map(h => (h.textContent || '').trim())
+    .find(t => t && !isProductTitle(t));
+  const isRecommendation = (img, row) => {
+    for (let el = row.parentElement; el && el !== panel.parentElement; el = el.parentElement) {
+      const h = sectionHeadingOf(el, row);
+      if (h) return RECS.test(h); // smallest ancestor with a section heading decides
+    }
+    const labels = [...row.querySelectorAll('button, [role="button"], select')].map(b => `${b.getAttribute('aria-label') || ''} ${(b.textContent || '').trim()}`);
+    const hasAdd = labels.some(l => /^\s*add\b/i.test(l) && !/add (1 )?more/i.test(l));
+    const hasCartControls = row.querySelector('select') || labels.some(l => /remove|delete|decrease|decrement|quantity|qty|−|^\s*-\s*$/i.test(l));
+    return hasAdd && !hasCartControls;
+  };
+  const controlsOf = (row) => [...row.querySelectorAll('button, [role="button"], select')].slice(0, 6)
+    .map(b => `[${(b.getAttribute('aria-label') || '').slice(0, 40)} | ${(b.textContent || '').trim().slice(0, 15)}]`).join(' ');
+
   const seen = new Set();
   const lines = [];
+  const skipped = [];
   for (const img of panel.querySelectorAll('img[alt]')) {
     if (!isTitle(img)) continue;
     const name = img.alt.trim();
@@ -155,10 +180,20 @@ function scanCartPanel() {
     // Largest ancestor inside the panel that still holds only this product = its row
     let row = img;
     while (row.parentElement && row.parentElement !== panel && productCount(row.parentElement) === 1) row = row.parentElement;
-    lines.push({ name, qty: readQty(row) });
+    if (isRecommendation(img, row)) { skipped.push(name); continue; }
+    const qty = readQty(row);
+    // When the quantity isn't found, keep the row's controls so the log shows how to read it
+    lines.push(qty == null ? { name, qty, controls: controlsOf(row) } : { name, qty });
   }
-  if (!lines.length) return emptyText ? { lines: [] } : { lines: null, why: `cart panel found but no products in it; ${diag()}` };
-  return { lines };
+  if (!lines.length) return emptyText || skipped.length ? { lines: [], skipped } : { lines: null, why: `cart panel found but no products in it; ${diag()}` };
+  return { lines, skipped };
+}
+
+function logCartDetails(read, onProgress) {
+  if (read.skipped?.length) onProgress(`Ignored ${read.skipped.length} suggested product(s) in the cart panel: ${read.skipped.join('; ')}`);
+  for (const l of read.lines || []) {
+    if (l.controls) onProgress(`Quantity not found for "${l.name}" — row controls: ${l.controls}`);
+  }
 }
 
 // Read the line items in this store's Instacart cart.
@@ -327,6 +362,7 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
     const before = beforeRead.lines;
     if (!before) throw new CartCheckError(`Couldn't read the ${store} Instacart cart, so nothing was added or ordered.`, `Why: ${beforeRead.why}`);
     onProgress(`Instacart cart has ${before.length} product(s)${before.length ? `: ${before.map(l => `${l.qty ?? '?'}× ${l.name}`).join('; ')}` : ''}`);
+    logCartDetails(beforeRead, onProgress);
     const pre = reconcileCart(groups, before);
     if (pre.unexpected.length) {
       throw new CartCheckError(
@@ -365,6 +401,7 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
     const after = afterRead.lines;
     if (!after) throw new CartCheckError(`Couldn't read the ${store} Instacart cart to verify it, so the order was NOT placed.`, `Why: ${afterRead.why}`);
     onProgress(`Instacart cart now has: ${after.map(l => `${l.qty ?? '?'}× ${l.name}`).join('; ') || '(nothing)'}`);
+    logCartDetails(afterRead, onProgress);
     const expected = groups.filter(g => !failedItems.includes(g.name));
     if (!expected.length) throw new CartCheckError(`None of the ${store} items could be added, so the order was NOT placed.`);
     const post = reconcileCart(expected, after);
