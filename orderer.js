@@ -95,13 +95,27 @@ class CartCheckError extends Error {
 }
 
 async function openCartPanel(page) {
-  const cartBtn = page.locator([
-    'a[href*="/cart"]',
+  // Instacart's header button is labelled "View Cart. Items in cart: N, …".
+  // Try it first, visible matches only, and retry past popups with a forced click.
+  const candidates = [
+    'button[aria-label^="View Cart" i]',
     'button[aria-label*="cart" i]',
     'a[aria-label*="cart" i]',
-  ].join(', ')).first();
-  await cartBtn.click({ timeout: 8000 });
-  await page.waitForTimeout(2500);
+    'a[href*="/cart"]',
+  ];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const sel of candidates) {
+      const btn = page.locator(sel).filter({ visible: true }).first();
+      if (!(await btn.count().catch(() => 0))) continue;
+      try {
+        await btn.click({ timeout: 5000, force: attempt > 0 });
+        await page.waitForTimeout(2500);
+        return;
+      } catch { /* try the next selector */ }
+    }
+    await dismissPopups(page);
+  }
+  throw new Error(`no clickable cart button; ${await describeButtons(page.locator('body'))}`);
 }
 
 // Runs in the page (self-contained): scan the open cart panel for products.
@@ -541,4 +555,4 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
   }
 }
 
-module.exports = { placeOrder, CartCheckError, markProductCard, scanCartPanel };
+module.exports = { placeOrder, CartCheckError, markProductCard, scanCartPanel, openCartPanel };
