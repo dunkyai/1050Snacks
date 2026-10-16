@@ -195,6 +195,7 @@ function scanCartPanel() {
 }
 
 function logCartDetails(read, onProgress) {
+  if (read.note) onProgress(`Note: ${read.note}`);
   if (read.skipped?.length) onProgress(`Ignored ${read.skipped.length} suggested product(s) in the cart panel: ${read.skipped.join('; ')}`);
   for (const l of read.lines || []) {
     if (l.controls) onProgress(`Quantity not found for "${l.name}" — row controls: ${l.controls}`);
@@ -212,6 +213,10 @@ async function readCart(page, slug) {
   try {
     await openCartPanel(page);
   } catch (err) {
+    // With an order in progress and nothing in the cart, Instacart's header shows
+    // "View Order. Items in order: N" where the cart button would be.
+    const orderBtn = await page.locator('button[aria-label^="View Order" i]').filter({ visible: true }).count().catch(() => 0);
+    if (orderBtn) return { lines: [], note: 'no cart button, only "View Order" (an order is in progress) — treating the cart as empty' };
     return { lines: null, why: `couldn't open the cart panel (${err.message.split('\n')[0]})` };
   }
 
