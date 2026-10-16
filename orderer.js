@@ -146,26 +146,11 @@ function scanCartPanel() {
   };
 
   // The cart panel also shows suggested products ("Customers also bought", …).
-  // Those sit under a recommendation heading and/or offer an "Add" button
-  // instead of the remove/quantity controls a real cart line has.
-  const RECS = /also (bought|like|need)|you (may|might)|suggest|recommend|complete your|frequently bought|popular|similar|before you (go|checkout)|don.t forget|sponsored|add more/i;
-  // Section headings only: skip headings inside this row and ones that are just a product's title
-  const titles = [...panel.querySelectorAll('img[alt]')].filter(isTitle).map(i => norm(i.alt));
-  const isProductTitle = (t) => { const n = norm(t); return n.length > 10 && titles.some(a => a.includes(n) || n.includes(a)); };
-  const sectionHeadingOf = (el, row) => [...el.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
-    .filter(h => !row.contains(h))
-    .map(h => (h.textContent || '').trim())
-    .find(t => t && !isProductTitle(t));
-  const isRecommendation = (img, row) => {
-    for (let el = row.parentElement; el && el !== panel.parentElement; el = el.parentElement) {
-      const h = sectionHeadingOf(el, row);
-      if (h) return RECS.test(h); // smallest ancestor with a section heading decides
-    }
-    const labels = [...row.querySelectorAll('button, [role="button"], select')].map(b => `${b.getAttribute('aria-label') || ''} ${(b.textContent || '').trim()}`);
-    const hasAdd = labels.some(l => /^\s*add\b/i.test(l) && !/add (1 )?more/i.test(l));
-    const hasCartControls = row.querySelector('select') || labels.some(l => /remove|delete|decrease|decrement|quantity|qty|−|^\s*-\s*$/i.test(l));
-    return hasAdd && !hasCartControls;
-  };
+  // A real cart line has a quantity control (Instacart labels it like
+  // "Quantity: 2 ct. Change quantity"); a suggestion only has an "Add" button.
+  const hasQuantityControl = (row) => !!row.querySelector('select') ||
+    [...row.querySelectorAll('[aria-label]')].some(el => /quantity|qty/i.test(el.getAttribute('aria-label')));
+  const isRecommendation = (img, row) => !hasQuantityControl(row);
   const controlsOf = (row) => [...row.querySelectorAll('button, [role="button"], select')].slice(0, 6)
     .map(b => `[${(b.getAttribute('aria-label') || '').slice(0, 40)} | ${(b.textContent || '').trim().slice(0, 15)}]`).join(' ');
 
@@ -304,6 +289,14 @@ async function addProduct(page, slug, group, count, alreadyInCart, onProgress) {
     try {
       await addBtn.waitFor({ state: 'visible', timeout: 8000 });
     } catch {
+      // Already in the cart: the card shows "Quantity: N ct. Change quantity" instead of Add.
+      // Leave it; the pre-checkout cart check compares the quantity.
+      const qtyLabel = await scope.locator('[aria-label*="Quantity" i]').first().getAttribute('aria-label').catch(() => null);
+      const inCart = qtyLabel && qtyLabel.match(/quantity\D{0,12}(\d+)/i);
+      if (inCart) {
+        onProgress(`"${group.name}" is already in the Instacart cart (${inCart[1]}) — leaving it`);
+        return;
+      }
       throw new Error(`no Add button found. Buttons here: ${await describeButtons(scope)}`);
     }
     await addBtn.click();
