@@ -215,9 +215,20 @@ async function readCart(page, slug) {
   } catch (err) {
     // With an order in progress and nothing in the cart, Instacart's header shows
     // "View Order. Items in order: N" where the cart button would be.
-    const orderBtn = await page.locator('button[aria-label^="View Order" i]').filter({ visible: true }).count().catch(() => 0);
-    if (orderBtn) return { lines: [], note: 'no cart button, only "View Order" (an order is in progress) — treating the cart as empty' };
-    return { lines: null, why: `couldn't open the cart panel (${err.message.split('\n')[0]})` };
+    // That header button is still the way into the cart while the order is active
+    // (Oct 16: items added during an active order didn't bring back a cart button).
+    const orderBtn = page.locator('button[aria-label^="View Order" i]').filter({ visible: true }).first();
+    if (!(await orderBtn.count().catch(() => 0))) {
+      return { lines: null, why: `couldn't open the cart panel (${err.message.split('\n')[0]})` };
+    }
+    await orderBtn.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+    const viaOrder = await page.evaluate(scanCartPanel).catch(() => null);
+    if (viaOrder && viaOrder.lines) {
+      return { ...viaOrder, note: 'read the cart through the "View Order" panel (an order is in progress)' };
+    }
+    // No checkout button in that panel either: nothing is waiting in the cart
+    return { lines: [], note: `only "View Order" and no cart in its panel — treating the cart as empty (${viaOrder?.why || 'panel unreadable'})` };
   }
 
   const result = await page.evaluate(scanCartPanel).catch(err => ({ lines: null, why: `page script failed: ${err.message.split('\n')[0]}` }));
