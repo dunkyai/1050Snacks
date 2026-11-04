@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const { launchOptions } = require('./instacart-net');
 const { saveReceipt } = require('./receipts');
 const { groupCartItems, reconcileCart, isCartClean, describeMismatch } = require('./cart-utils');
 
@@ -381,10 +382,7 @@ async function placeOrder(store, items, onProgress, { dryRun = false } = {}) {
   const slug = STORE_SLUGS[store] || store.toLowerCase();
   onProgress(`Starting ${store} order — ${items.length} item(s)…`);
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote', '--single-process'],
-  });
+  const browser = await chromium.launch(launchOptions(['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote', '--single-process']));
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 },

@@ -83,6 +83,7 @@ jobs:
               -e "SWITCHBOT_WEBHOOK_TOKEN=${{ secrets.SWITCHBOT_WEBHOOK_TOKEN }}" \
               -e "SWITCHBOT_TOKEN=${{ secrets.SWITCHBOT_TOKEN }}" \
               -e "SWITCHBOT_SECRET=${{ secrets.SWITCHBOT_SECRET }}" \
+              -e "INSTACART_PROXY_URL=${{ secrets.INSTACART_PROXY_URL }}" \
               1050snacks
 
             STATUS=$(docker ps --filter name=1050snacks --format '{{.Status}}')
