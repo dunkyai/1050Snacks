@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const { launchOptions, assertNotBlocked } = require('./instacart-net');
 
 const DELIVERY_ADDRESS = '1050 Sansome St, San Francisco, CA 94111';
 
@@ -37,7 +38,8 @@ function parseServings(title, size) {
 }
 
 // Load the Instacart homepage and extract store URLs from the store list.
-// The server IP resolves to SF Bay Area so stores are already shown.
+// Note: the production server is in Helsinki (Hetzner), not the SF Bay Area;
+// location comes from the session cookies / delivery address, not the IP.
 async function loadHomepageAndGetStoreUrls(page) {
   await page.goto('https://www.instacart.com', { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForTimeout(3000);
@@ -69,15 +71,17 @@ function pickStoreUrl(storeLinks, storeName) {
 async function scrapeStore(page, store, query) {
   try {
     // Load homepage first to establish session/location context
-    await page.goto('https://www.instacart.com', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const home = await page.goto('https://www.instacart.com', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await assertNotBlocked(page, home, 'instacart.com home');
     await page.waitForTimeout(2000);
 
     // Navigate directly to store-scoped search results
     const searchUrl = `https://www.instacart.com/store/${store.slug}/s?k=${encodeURIComponent(query)}`;
     console.log(`[${store.name}] searching: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const resp = await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await assertNotBlocked(page, resp, `${store.name} search`);
     await page.waitForTimeout(2500);
-    console.log(`[${store.name}] landed: ${page.url()}`);
+    console.log(`[${store.name}] landed: ${page.url()} (HTTP ${resp ? resp.status() : '?'})`);
 
     // Scroll to load lazy-rendered products
     for (let i = 0; i < 3; i++) {
@@ -225,7 +229,8 @@ async function scrapeStore(page, store, query) {
   } catch (err) {
     console.error(`[${store.name}] scrape error: ${err.message}`);
     await page.screenshot({ path: `/tmp/debug-${store.slug}-error.png` }).catch(() => {});
-    return [];
+    // Don't hide the failure as "no results": callers show this to the user.
+    throw err;
   }
 }
 
@@ -265,17 +270,14 @@ async function injectSessionCookies(context) {
 }
 
 async function scrapeInstacart(query, onStoreResult, storeName = null) {
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-zygote',
-      '--single-process',
-    ],
-  });
+  const browser = await chromium.launch(launchOptions([
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process',
+  ]));
 
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',

@@ -565,7 +565,8 @@ app.post('/slack/search',
           text: `🎲 Added *${pick.name}* — $${pick.price.toFixed(2)}${pick.size ? ` · ${pick.size}` : ''}\nCart total: $${rounded.toFixed(2)} / $${ORDER_THRESHOLD}${rounded >= ORDER_THRESHOLD ? ' ✅' : ''}`,
         });
       } catch (err) {
-        await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `Error: ${err.message}` });
+        console.error('[slack/search surprise] failed:', err.message);
+        await slackPost(response_url, { response_type: 'in_channel', replace_original: true, text: `⚠️ ${err.message}` });
       }
       return;
     }
@@ -640,7 +641,8 @@ app.post('/slack/interact',
           text: `${store} results for "${searchQuery}"`,
         });
       } catch (err) {
-        await slackPost(responseUrl, { response_type: 'ephemeral', replace_original: true, text: `Error searching ${store}: ${err.message}` });
+        console.error(`[interact] search ${store} failed:`, err.message);
+        await slackPost(responseUrl, { response_type: 'ephemeral', replace_original: true, text: `⚠️ Couldn't search ${store}: ${err.message}` });
       }
       return;
     }
