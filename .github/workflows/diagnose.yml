@@ -1,0 +1,38 @@
+name: diagnose-search
+
+# Read-only check of why /snacks search returns nothing on the server.
+# Runs only on pushes to the riley/munchy-diagnose branch (or by hand). Does not build, restart or change the running container.
+on:
+  push:
+    branches: [riley/munchy-diagnose]
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "135.181.222.36 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr59jVWvy6FCR7dWVT3OPnNS7EGj77t38eCDnDgkueL" >> ~/.ssh/known_hosts
+      - name: Run diagnostic inside the running container
+        run: |
+          scp -i ~/.ssh/id_ed25519 scripts/diagnose-search.js root@135.181.222.36:/tmp/diagnose-search.js
+          ssh -i ~/.ssh/id_ed25519 root@135.181.222.36 'bash -s' << 'ENDSSH'
+            set -uo pipefail
+            echo "== container"
+            docker ps --filter name=1050snacks --format '{{.Status}} {{.Image}} {{.CreatedAt}}'
+            echo "== server egress IP / geo"
+            curl -s -m 10 https://ipinfo.io/json | grep -E '"(ip|city|region|country|org)"' || true
+            echo "== recent scrape log lines"
+            docker logs --tail 400 1050snacks 2>&1 | grep -E 'searching|landed|extracted|scrape error|Injected|session cookies|Homepage|rank\]' | tail -40
+            echo "== live probe"
+            docker cp /tmp/diagnose-search.js 1050snacks:/app/diagnose-search.js
+            docker exec 1050snacks timeout 150 node /app/diagnose-search.js
+            docker exec 1050snacks rm -f /app/diagnose-search.js
+            rm -f /tmp/diagnose-search.js
+          ENDSSH
